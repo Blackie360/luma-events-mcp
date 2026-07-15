@@ -23,6 +23,22 @@ Write operations are guarded by a required `confirmed` value. MCP clients should
 show the proposed event details to the user and obtain explicit approval before
 calling a write tool.
 
+## Screenshots
+
+### Discover available capabilities
+
+![The Luma Events MCP server describing its available tools and confirmation safeguards](docs/images/capabilities.png)
+
+### List upcoming events
+
+![The Luma Events MCP server listing upcoming calendar events](docs/images/upcoming-events.png)
+
+### Analyze guest attendance
+
+Guest identities have been redacted from this public example.
+
+![Aggregate guest attendance insights with guest names redacted](docs/images/guest-insights-redacted.png)
+
 ## Available tools
 
 ### `verify_connection`
