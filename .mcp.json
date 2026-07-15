@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "luma": {
+      "command": "node",
+      "args": ["./dist/index.js"],
+      "cwd": ".",
+      "env_vars": ["LUMA_API_KEY"]
+    }
+  }
+}

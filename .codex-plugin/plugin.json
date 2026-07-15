@@ -1,0 +1,36 @@
+{
+  "name": "luma-events",
+  "version": "0.1.0+codex.20260715072719",
+  "description": "Manage Luma events and registration insights from Codex.",
+  "author": {
+    "name": "Felix Jumason",
+    "email": "felixkent360@gmail.com",
+    "url": "https://github.com/Blackie360"
+  },
+  "homepage": "https://docs.lu.ma/reference/getting-started-with-your-api",
+  "license": "MIT",
+  "keywords": [
+    "luma",
+    "events",
+    "registrations",
+    "cursor-kenya"
+  ],
+  "interface": {
+    "displayName": "Luma Events",
+    "shortDescription": "Plan events and inspect Luma registrations.",
+    "longDescription": "Create and update Luma events, list calendar events, inspect guests, and summarize registrations without leaving Codex.",
+    "developerName": "Felix Jumason",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://lu.ma",
+    "defaultPrompt": [
+      "Show my upcoming Luma events.",
+      "Summarize registrations for my next event.",
+      "Prepare a Luma event from this plan."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}
