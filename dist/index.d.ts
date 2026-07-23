@@ -14,5 +14,9 @@ export type LumaRequest = (path: string, options?: {
     query?: Record<string, unknown>;
     body?: unknown;
 }) => Promise<unknown>;
+export declare function approveWaitlistedGuests(event_id: string, options?: {
+    send_email?: boolean;
+    message?: string;
+}, request?: LumaRequest): Promise<Json>;
 export declare function summarizeRegistrations(event_id: string, request?: LumaRequest): Promise<Json>;
 export {};

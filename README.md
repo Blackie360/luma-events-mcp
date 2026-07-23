@@ -5,8 +5,8 @@ server for managing Luma events from MCP-compatible AI clients.
 
 The server connects to the calendar associated with your Luma API key. It can
 list and inspect events, create or update events after explicit confirmation,
-inspect guest registrations, and return privacy-conscious registration
-summaries.
+approve waitlisted guests after explicit confirmation, inspect guest
+registrations, and return privacy-conscious registration summaries.
 
 ## Features
 
@@ -15,6 +15,7 @@ summaries.
 - Retrieve complete details for an event.
 - Create events after explicit user confirmation.
 - Update event details and registration settings after explicit confirmation.
+- Approve all currently waitlisted guests after explicit confirmation.
 - List guests for event operations.
 - Count registration states and check-ins without returning guest identities.
 - Paginate automatically when producing registration summaries.
@@ -63,6 +64,14 @@ visibility, registration, waitlist, and guest-list settings.
 ### `update_event`
 
 Updates selected event fields after explicit confirmation.
+
+### `approve_waitlisted_guests`
+
+Approves every guest who is currently waitlisted for an event after explicit
+confirmation. It can send Luma's approval email with an optional message,
+paginates through the entire waitlist before writing, and reports partial
+failures without returning guest names or email addresses. To stay within
+Luma's calendar API rate limit, one call is limited to 150 waitlisted guests.
 
 ### `list_guests`
 
@@ -187,6 +196,7 @@ other tools.
 - "Show my upcoming Luma events."
 - "Show the details for the next event."
 - "Summarize registrations for my next event."
+- "Show how many guests are waitlisted, then approve all of them after I confirm."
 - "Prepare an event for Friday at 5 PM, but do not create it until I confirm."
 - "Close registration for this event after showing me the proposed change."
 
@@ -211,7 +221,8 @@ pnpm test
 ```
 
 The test suite covers write confirmation, API error reporting, registration
-pagination, and privacy-conscious summaries.
+pagination, bulk waitlist approval, partial failures, and privacy-conscious
+summaries.
 
 ## Project structure
 
@@ -229,6 +240,8 @@ pagination, and privacy-conscious summaries.
 
 - Never commit `LUMA_API_KEY` or any `.env` file.
 - Review requested changes before confirming write operations.
+- Review the event, waitlisted guest count, and notification choice before
+  confirming a bulk approval.
 - Use `list_guests` only when guest-level data is necessary.
 - Prefer `registration_summary` when only aggregate counts are required.
 - Keep dependencies updated and report vulnerabilities privately to the

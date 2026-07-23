@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { z } from "zod";
 
 const DEFAULT_API_BASE = "https://public-api.luma.com";
+const MAX_BULK_APPROVALS = 150;
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -57,7 +58,7 @@ export function requireConfirmation(confirmed: boolean, action: string): void {
 }
 
 export function createServer(): McpServer {
-const server = new McpServer({ name: "luma-events", version: "0.1.0" });
+const server = new McpServer({ name: "luma-events", version: "0.2.0" });
 
 server.registerTool("verify_connection", {
   title: "Verify Luma connection",
@@ -141,6 +142,21 @@ server.registerTool("update_event", {
   return result(await luma("/v1/events/update", { method: "POST", body }));
 });
 
+server.registerTool("approve_waitlisted_guests", {
+  title: "Approve waitlisted Luma guests",
+  description: "Approve every guest who is currently waitlisted for an event. Call only after showing the event, waitlisted guest count, and email notification choice, then receiving explicit confirmation.",
+  inputSchema: {
+    event_id: z.string().min(1),
+    send_email: z.boolean().default(true).describe("Whether Luma should email each guest about the approval."),
+    message: z.string().max(200).optional().describe("Optional personal message included in Luma's approval email. Cannot be used when send_email is false."),
+    confirmed: z.boolean().describe("Must be true only after explicit user confirmation.")
+  },
+  annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+}, async ({ event_id, send_email, message, confirmed }) => {
+  requireConfirmation(confirmed, "approving all waitlisted Luma guests");
+  return result(await approveWaitlistedGuests(event_id, { send_email, message }));
+});
+
 server.registerTool("list_guests", {
   title: "List Luma guests",
   description: "List guests for an event. Guest data may include personal information; use only for event operations requested by the user.",
@@ -169,6 +185,84 @@ export type LumaRequest = (
   path: string,
   options?: { method?: "GET" | "POST"; query?: Record<string, unknown>; body?: unknown }
 ) => Promise<unknown>;
+
+export async function approveWaitlistedGuests(
+  event_id: string,
+  options: { send_email?: boolean; message?: string } = {},
+  request: LumaRequest = luma
+): Promise<Json> {
+  const send_email = options.send_email ?? true;
+  if (!send_email && options.message) {
+    throw new Error("An approval message cannot be sent when send_email is false.");
+  }
+
+  const guestIds: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await request("/v1/events/guests/list", {
+      query: {
+        event_id,
+        approval_status: "waitlist",
+        pagination_limit: 100,
+        pagination_cursor: cursor
+      }
+    }) as {
+      entries?: Array<Record<string, unknown>>;
+      has_more?: boolean;
+      next_cursor?: string;
+    };
+
+    for (const guest of page.entries ?? []) {
+      if (typeof guest.id !== "string" || !guest.id) {
+        throw new Error("Luma returned a waitlisted guest without an id; no guests were approved.");
+      }
+      guestIds.push(guest.id);
+    }
+
+    cursor = page.has_more ? page.next_cursor : undefined;
+    if (page.has_more && !cursor) {
+      throw new Error("Luma returned has_more=true without a next_cursor; no guests were approved.");
+    }
+  } while (cursor);
+
+  const uniqueGuestIds = [...new Set(guestIds)];
+  if (uniqueGuestIds.length > MAX_BULK_APPROVALS) {
+    throw new Error(
+      `Found ${uniqueGuestIds.length} waitlisted guests, exceeding the safe per-call limit of ${MAX_BULK_APPROVALS}; no guests were approved.`
+    );
+  }
+
+  let approved = 0;
+  const failures: Array<{ guest_id: string; error: string }> = [];
+  for (const guest_id of uniqueGuestIds) {
+    try {
+      await request("/v1/events/guests/update-status", {
+        method: "POST",
+        body: {
+          event_id,
+          guest_id,
+          status: "approved",
+          send_email,
+          ...(options.message === undefined ? {} : { message: options.message })
+        }
+      });
+      approved += 1;
+    } catch (error) {
+      failures.push({
+        guest_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  return {
+    event_id,
+    found_waitlisted: uniqueGuestIds.length,
+    approved,
+    failed: failures.length,
+    ...(failures.length === 0 ? {} : { failures })
+  };
+}
 
 export async function summarizeRegistrations(event_id: string, request: LumaRequest = luma): Promise<Json> {
   const counts: Record<string, number> = { total: 0, checked_in: 0 };

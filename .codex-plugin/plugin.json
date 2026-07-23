@@ -1,6 +1,6 @@
 {
   "name": "luma-events",
-  "version": "0.1.0+codex.20260715072719",
+  "version": "0.2.0+codex.20260723120000",
   "description": "Manage Luma events and registration insights from Codex.",
   "author": {
     "name": "Felix Jumason",
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "Luma Events",
     "shortDescription": "Plan events and inspect Luma registrations.",
-    "longDescription": "Create and update Luma events, list calendar events, inspect guests, and summarize registrations without leaving Codex.",
+    "longDescription": "Create and update Luma events, approve waitlisted guests, list calendar events, inspect guests, and summarize registrations without leaving Codex.",
     "developerName": "Felix Jumason",
     "category": "Productivity",
     "capabilities": [
