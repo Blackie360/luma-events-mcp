@@ -21012,8 +21012,8 @@ import process2 from "node:process";
 
 // node_modules/.pnpm/@modelcontextprotocol+sdk@1.29.0_zod@3.25.76/node_modules/@modelcontextprotocol/sdk/dist/esm/shared/stdio.js
 var ReadBuffer = class {
-  append(chunk) {
-    this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
+  append(chunk2) {
+    this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk2]) : chunk2;
   }
   readMessage() {
     if (!this._buffer) {
@@ -21045,8 +21045,8 @@ var StdioServerTransport = class {
     this._stdout = _stdout;
     this._readBuffer = new ReadBuffer();
     this._started = false;
-    this._ondata = (chunk) => {
-      this._readBuffer.append(chunk);
+    this._ondata = (chunk2) => {
+      this._readBuffer.append(chunk2);
       this.processReadBuffer();
     };
     this._onerror = (error2) => {
@@ -21102,7 +21102,29 @@ var StdioServerTransport = class {
 // src/index.ts
 import { pathToFileURL } from "node:url";
 var DEFAULT_API_BASE = "https://public-api.luma.com";
-var MAX_BULK_APPROVALS = 150;
+var MAX_APPROVALS_PER_RUN = 90;
+var INVITE_BATCH_SIZE = 100;
+var approvalStatusSchema = external_exports.enum(["approved", "session", "pending_approval", "invited", "declined", "waitlist"]);
+var guestContactSchema = external_exports.object({
+  email: external_exports.string().email(),
+  name: external_exports.string().min(1).optional()
+});
+var registrationAnswerValueSchema = external_exports.union([
+  external_exports.string(),
+  external_exports.boolean(),
+  external_exports.array(external_exports.string()),
+  external_exports.object({
+    company: external_exports.string().nullable().optional(),
+    job_title: external_exports.string().nullable().optional()
+  })
+]);
+var guestToAddSchema = guestContactSchema.extend({
+  registration_answers: external_exports.array(external_exports.object({
+    question_id: external_exports.string().min(1),
+    value: registrationAnswerValueSchema
+  })).optional()
+});
+var ticketSchema = external_exports.object({ event_ticket_type_id: external_exports.string().min(1) });
 function apiKey() {
   const value = process.env.LUMA_API_KEY?.trim();
   if (!value) {
@@ -21146,7 +21168,7 @@ function requireConfirmation(confirmed, action) {
   if (!confirmed) throw new Error(`Confirmation required before ${action}. Review the proposed values, ask the user to confirm, then retry with confirmed=true.`);
 }
 function createServer() {
-  const server = new McpServer({ name: "luma-events", version: "0.2.0" });
+  const server = new McpServer({ name: "luma-events", version: "0.3.0" });
   server.registerTool("verify_connection", {
     title: "Verify Luma connection",
     description: "Verify the configured Luma API key and return the authenticated user.",
@@ -21171,6 +21193,15 @@ function createServer() {
     inputSchema: { event_id: external_exports.string().min(1) },
     annotations: { readOnlyHint: true, openWorldHint: true }
   }, async ({ event_id }) => result(await luma("/v1/events/get", { query: { event_id } })));
+  server.registerTool("get_guest", {
+    title: "Get Luma guest",
+    description: "Get complete details for one event guest by guest ID, ticket key, guest key, or email. The response contains personal information and ticket-order details.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      id: external_exports.string().min(1).describe("Guest ID, ticket key, guest key, or email.")
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true }
+  }, async (input) => result(await luma("/v1/events/guests/get", { query: input })));
   const eventFields = {
     name: external_exports.string().min(1),
     start_at: external_exports.string().datetime(),
@@ -21223,19 +21254,81 @@ function createServer() {
     requireConfirmation(confirmed, "updating the Luma event");
     return result(await luma("/v1/events/update", { method: "POST", body }));
   });
-  server.registerTool("approve_waitlisted_guests", {
-    title: "Approve waitlisted Luma guests",
-    description: "Approve every guest who is currently waitlisted for an event. Call only after showing the event, waitlisted guest count, and email notification choice, then receiving explicit confirmation.",
+  server.registerTool("add_guests", {
+    title: "Add Luma guests",
+    description: "Add guests directly to an event with tickets and an approved, pending-approval, or waitlist status. This registers guests rather than sending a soft invite. Show the event, recipient count, status, ticket assignment, and email choice before asking for confirmation.",
     inputSchema: {
       event_id: external_exports.string().min(1),
+      guests: external_exports.array(guestToAddSchema).min(1).max(500),
+      ticket: ticketSchema.optional().describe("One ticket type assigned to every guest. Cannot be combined with tickets."),
+      tickets: external_exports.array(ticketSchema).min(1).optional().describe("Multiple tickets assigned to every guest. Cannot be combined with ticket."),
+      approval_status: external_exports.enum(["approved", "pending_approval", "waitlist"]).default("approved"),
+      send_email: external_exports.boolean().default(true),
+      confirmed: external_exports.boolean().describe("Must be true only after explicit user confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, async ({ confirmed, ticket, tickets, ...body }) => {
+    requireConfirmation(confirmed, "adding guests to the Luma event");
+    if (ticket && tickets) {
+      throw new Error("ticket and tickets cannot be used together.");
+    }
+    await luma("/v1/events/guests/add", {
+      method: "POST",
+      body: {
+        ...body,
+        ...ticket === void 0 ? {} : { ticket },
+        ...tickets === void 0 ? {} : { tickets }
+      }
+    });
+    return result({
+      event_id: body.event_id,
+      added: body.guests.length,
+      approval_status: body.approval_status,
+      send_email: body.send_email
+    });
+  });
+  server.registerTool("send_invites", {
+    title: "Send Luma event invites",
+    description: "Send soft event invitations by email and, when linked to a Luma account, SMS. Invited people choose whether to register. Show the event, recipient count, and message before asking for confirmation.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      guests: external_exports.array(guestContactSchema).min(1).max(500),
+      message: external_exports.string().max(200).optional(),
+      confirmed: external_exports.boolean().describe("Must be true only after explicit user confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, async ({ confirmed, ...input }) => {
+    requireConfirmation(confirmed, "sending Luma event invitations");
+    return result(await sendInvites(input.event_id, input.guests, input.message));
+  });
+  server.registerTool("invite_guests_from_event", {
+    title: "Invite guests from another Luma event",
+    description: "Build a privacy-conscious audience from selected guest statuses on a source event, remove duplicate emails and anyone already on the target event, and send soft Luma invitations in batches. Call with confirmed=false first to preview aggregate counts without exposing identities; call again with confirmed=true only after explicit approval.",
+    inputSchema: {
+      source_event_id: external_exports.string().min(1),
+      target_event_id: external_exports.string().min(1),
+      source_statuses: external_exports.array(approvalStatusSchema).min(1).max(6).default(["approved", "waitlist"]),
+      message: external_exports.string().max(200).optional(),
+      confirmed: external_exports.boolean().default(false).describe("False returns an aggregate preview. True rebuilds the audience and sends the invitations.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, async (input) => {
+    return result(await inviteGuestsFromEvent(input, luma));
+  });
+  server.registerTool("approve_waitlisted_guests", {
+    title: "Approve waitlisted Luma guests",
+    description: "Approve up to " + MAX_APPROVALS_PER_RUN + " currently waitlisted guests per run, leaving rate-limit headroom. Large waitlists are safely resumable by rerunning the tool until resume_required is false. Call only after showing the event, waitlisted guest count, and email notification choice, then receiving explicit confirmation.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      max_approvals: external_exports.number().int().min(1).max(MAX_APPROVALS_PER_RUN).default(MAX_APPROVALS_PER_RUN),
       send_email: external_exports.boolean().default(true).describe("Whether Luma should email each guest about the approval."),
       message: external_exports.string().max(200).optional().describe("Optional personal message included in Luma's approval email. Cannot be used when send_email is false."),
       confirmed: external_exports.boolean().describe("Must be true only after explicit user confirmation.")
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
-  }, async ({ event_id, send_email, message, confirmed }) => {
+  }, async ({ event_id, max_approvals, send_email, message, confirmed }) => {
     requireConfirmation(confirmed, "approving all waitlisted Luma guests");
-    return result(await approveWaitlistedGuests(event_id, { send_email, message }));
+    return result(await approveWaitlistedGuests(event_id, { max_approvals, send_email, message }));
   });
   server.registerTool("list_guests", {
     title: "List Luma guests",
@@ -21260,40 +21353,25 @@ function createServer() {
 }
 async function approveWaitlistedGuests(event_id, options = {}, request = luma) {
   const send_email = options.send_email ?? true;
+  const max_approvals = options.max_approvals ?? MAX_APPROVALS_PER_RUN;
+  if (!Number.isInteger(max_approvals) || max_approvals < 1 || max_approvals > MAX_APPROVALS_PER_RUN) {
+    throw new Error("max_approvals must be an integer from 1 to " + MAX_APPROVALS_PER_RUN + ".");
+  }
   if (!send_email && options.message) {
     throw new Error("An approval message cannot be sent when send_email is false.");
   }
-  const guestIds = [];
-  let cursor;
-  do {
-    const page = await request("/v1/events/guests/list", {
-      query: {
-        event_id,
-        approval_status: "waitlist",
-        pagination_limit: 100,
-        pagination_cursor: cursor
-      }
-    });
-    for (const guest of page.entries ?? []) {
-      if (typeof guest.id !== "string" || !guest.id) {
-        throw new Error("Luma returned a waitlisted guest without an id; no guests were approved.");
-      }
-      guestIds.push(guest.id);
+  const guests = await listAllGuests(event_id, request, "waitlist");
+  const guestIds = guests.map((guest) => {
+    if (typeof guest.id !== "string" || !guest.id) {
+      throw new Error("Luma returned a waitlisted guest without an id; no guests were approved.");
     }
-    cursor = page.has_more ? page.next_cursor : void 0;
-    if (page.has_more && !cursor) {
-      throw new Error("Luma returned has_more=true without a next_cursor; no guests were approved.");
-    }
-  } while (cursor);
+    return guest.id;
+  });
   const uniqueGuestIds = [...new Set(guestIds)];
-  if (uniqueGuestIds.length > MAX_BULK_APPROVALS) {
-    throw new Error(
-      `Found ${uniqueGuestIds.length} waitlisted guests, exceeding the safe per-call limit of ${MAX_BULK_APPROVALS}; no guests were approved.`
-    );
-  }
+  const guestIdsThisRun = uniqueGuestIds.slice(0, max_approvals);
   let approved = 0;
   const failures = [];
-  for (const guest_id of uniqueGuestIds) {
+  for (const guest_id of guestIdsThisRun) {
     try {
       await request("/v1/events/guests/update-status", {
         method: "POST",
@@ -21316,10 +21394,134 @@ async function approveWaitlistedGuests(event_id, options = {}, request = luma) {
   return {
     event_id,
     found_waitlisted: uniqueGuestIds.length,
+    attempted: guestIdsThisRun.length,
     approved,
     failed: failures.length,
+    remaining_waitlisted: uniqueGuestIds.length - approved,
+    resume_required: uniqueGuestIds.length - approved > 0,
     ...failures.length === 0 ? {} : { failures }
   };
+}
+async function listAllGuests(event_id, request, approval_status) {
+  const guests = [];
+  let cursor;
+  do {
+    const page = await request("/v1/events/guests/list", {
+      query: {
+        event_id,
+        ...approval_status === void 0 ? {} : { approval_status },
+        pagination_limit: 100,
+        pagination_cursor: cursor
+      }
+    });
+    guests.push(...page.entries ?? []);
+    cursor = page.has_more ? page.next_cursor : void 0;
+    if (page.has_more && !cursor) {
+      throw new Error("Luma returned has_more=true without a next_cursor.");
+    }
+  } while (cursor);
+  return guests;
+}
+async function sendInvites(event_id, guests, message, request = luma) {
+  const failures = [];
+  let invited = 0;
+  const batches = chunk(guests, INVITE_BATCH_SIZE);
+  for (const [index, batch] of batches.entries()) {
+    try {
+      await request("/v1/events/guests/send-invites", {
+        method: "POST",
+        body: {
+          event_id,
+          guests: batch,
+          ...message === void 0 ? {} : { message }
+        }
+      });
+      invited += batch.length;
+    } catch (error2) {
+      failures.push({
+        batch: index + 1,
+        guest_count: batch.length,
+        error: error2 instanceof Error ? error2.message : String(error2)
+      });
+    }
+  }
+  return {
+    event_id,
+    requested: guests.length,
+    invited,
+    failed: guests.length - invited,
+    batches: batches.length,
+    complete: failures.length === 0,
+    ...failures.length === 0 ? {} : { failures }
+  };
+}
+async function inviteGuestsFromEvent(input, request = luma) {
+  if (input.source_event_id === input.target_event_id) {
+    throw new Error("source_event_id and target_event_id must be different.");
+  }
+  const source_statuses = [...new Set(input.source_statuses ?? ["approved", "waitlist"])];
+  const sourceGuests = (await Promise.all(
+    source_statuses.map((status) => listAllGuests(input.source_event_id, request, status))
+  )).flat();
+  const targetGuests = await listAllGuests(input.target_event_id, request);
+  const targetEmails = new Set(
+    targetGuests.map(guestEmail).filter((email2) => email2 !== void 0)
+  );
+  const sourceByEmail = /* @__PURE__ */ new Map();
+  let invalid_or_missing_email = 0;
+  let duplicate_source_email = 0;
+  for (const guest of sourceGuests) {
+    const email2 = guestEmail(guest);
+    if (!email2) {
+      invalid_or_missing_email += 1;
+      continue;
+    }
+    if (sourceByEmail.has(email2)) {
+      duplicate_source_email += 1;
+      continue;
+    }
+    const name = typeof guest.user_name === "string" && guest.user_name.trim() ? guest.user_name.trim() : void 0;
+    sourceByEmail.set(email2, { email: email2, ...name === void 0 ? {} : { name } });
+  }
+  const eligible = [...sourceByEmail.values()].filter((guest) => !targetEmails.has(guest.email));
+  const already_in_target = sourceByEmail.size - eligible.length;
+  const preview = {
+    source_event_id: input.source_event_id,
+    target_event_id: input.target_event_id,
+    source_statuses,
+    source_guests_found: sourceGuests.length,
+    source_unique_emails: sourceByEmail.size,
+    excluded_invalid_or_missing_email: invalid_or_missing_email,
+    excluded_duplicate_source_email: duplicate_source_email,
+    excluded_already_in_target: already_in_target,
+    eligible_to_invite: eligible.length,
+    batches_required: Math.ceil(eligible.length / INVITE_BATCH_SIZE)
+  };
+  if (!input.confirmed) {
+    return {
+      ...preview,
+      preview_only: true,
+      confirmation_required: eligible.length > 0
+    };
+  }
+  const sent = await sendInvites(input.target_event_id, eligible, input.message, request);
+  return {
+    ...preview,
+    preview_only: false,
+    ...sent
+  };
+}
+function guestEmail(guest) {
+  if (typeof guest.user_email !== "string") return void 0;
+  const email2 = guest.user_email.trim().toLowerCase();
+  return email2 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email2) ? email2 : void 0;
+}
+function chunk(values, size) {
+  const chunks = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 async function summarizeRegistrations(event_id, request = luma) {
   const counts = { total: 0, checked_in: 0 };
@@ -21347,8 +21549,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 export {
   approveWaitlistedGuests,
   createServer,
+  inviteGuestsFromEvent,
   luma,
   requireConfirmation,
+  sendInvites,
   summarizeRegistrations
 };
 //# sourceMappingURL=index.js.map

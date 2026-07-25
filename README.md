@@ -4,21 +4,23 @@ An open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 server for managing Luma events from MCP-compatible AI clients.
 
 The server connects to the calendar associated with your Luma API key. It can
-list and inspect events, create or update events after explicit confirmation,
-approve waitlisted guests after explicit confirmation, inspect guest
-registrations, and return privacy-conscious registration summaries.
+manage events, inspect registrations, look up and add guests, send soft
+invitations, safely invite audiences from past events, and approve waitlists
+without exceeding a conservative per-run write budget.
 
 ## Features
 
 - Verify the configured Luma API connection.
 - List approved or pending calendar events.
-- Retrieve complete details for an event.
-- Create events after explicit user confirmation.
-- Update event details and registration settings after explicit confirmation.
-- Approve all currently waitlisted guests after explicit confirmation.
+- Retrieve complete details for an event or one guest.
+- Create and update events after explicit user confirmation.
+- Add guests directly with optional ticket and registration-answer data.
+- Send soft event invitations by email and, for linked accounts, SMS.
+- Preview and invite deduplicated audiences from earlier events without exposing identities.
+- Approve waitlists in resumable 90-guest runs with partial-failure reporting.
 - List guests for event operations.
 - Count registration states and check-ins without returning guest identities.
-- Paginate automatically when producing registration summaries.
+- Paginate automatically when producing registration summaries and audience previews.
 
 Write operations are guarded by a required `confirmed` value. MCP clients should
 show the proposed event details to the user and obtain explicit approval before
@@ -55,6 +57,11 @@ and pagination cursors.
 
 Returns complete details for a single event.
 
+### `get_guest`
+
+Returns one guest by guest ID, ticket key, guest key, or email, including
+ticket-order details. This response contains personal information.
+
 ### `create_event`
 
 Creates an event after explicit confirmation. Supports event names, dates,
@@ -65,13 +72,31 @@ visibility, registration, waitlist, and guest-list settings.
 
 Updates selected event fields after explicit confirmation.
 
+### `add_guests`
+
+Registers guests directly with an approved, pending-approval, or waitlist
+status. Supports names, registration answers, ticket types, and optional Luma
+email notifications. Requires explicit confirmation.
+
+### `send_invites`
+
+Sends soft invitations in batches of 100. Luma emails each recipient and may
+also send SMS when a phone number is linked to the recipient's Luma account.
+Requires explicit confirmation and returns only aggregate delivery counts.
+
+### `invite_guests_from_event`
+
+Builds an audience from selected source-event statuses, normalizes and
+deduplicates email addresses, removes guests already associated with the target
+event, and sends soft invitations in batches. Call with `confirmed=false` first
+to receive an identity-free preview, then with `confirmed=true` after approval.
+
 ### `approve_waitlisted_guests`
 
-Approves every guest who is currently waitlisted for an event after explicit
-confirmation. It can send Luma's approval email with an optional message,
-paginates through the entire waitlist before writing, and reports partial
-failures without returning guest names or email addresses. To stay within
-Luma's calendar API rate limit, one call is limited to 150 waitlisted guests.
+Approves up to 90 currently waitlisted guests after explicit confirmation. It
+can send Luma's approval email with an optional message, reports partial
+failures without returning guest names or email addresses, and returns
+`resume_required=true` when another safe run is needed.
 
 ### `list_guests`
 
@@ -94,7 +119,7 @@ exposing names or email addresses.
 ## Getting a Luma API key
 
 Generate a calendar API key by following the
-[Luma API documentation](https://docs.lu.ma/reference/getting-started-with-your-api).
+[Luma API documentation](https://docs.luma.com/reference/getting-started-with-your-api).
 The key determines which calendar the server can access.
 
 Treat the key as a secret. Never commit it, include it in screenshots, or place
@@ -196,7 +221,10 @@ other tools.
 - "Show my upcoming Luma events."
 - "Show the details for the next event."
 - "Summarize registrations for my next event."
-- "Show how many guests are waitlisted, then approve all of them after I confirm."
+- "Show how many guests are waitlisted, then approve a safe batch after I confirm."
+- "Preview the waitlisted guests from the last event who are not already on my next event."
+- "Invite that previewed audience to the next event after I confirm."
+- "Add these guests to the event as pending approval after I confirm."
 - "Prepare an event for Friday at 5 PM, but do not create it until I confirm."
 - "Close registration for this event after showing me the proposed change."
 
@@ -220,9 +248,9 @@ Run the test suite:
 pnpm test
 ```
 
-The test suite covers write confirmation, API error reporting, registration
-pagination, bulk waitlist approval, partial failures, and privacy-conscious
-summaries.
+The test suite covers write confirmation, API error reporting, pagination,
+resumable waitlist approvals, invite batching, audience deduplication,
+privacy-conscious previews, and MCP tool discovery and execution.
 
 ## Project structure
 
@@ -240,9 +268,11 @@ summaries.
 
 - Never commit `LUMA_API_KEY` or any `.env` file.
 - Review requested changes before confirming write operations.
-- Review the event, waitlisted guest count, and notification choice before
-  confirming a bulk approval.
-- Use `list_guests` only when guest-level data is necessary.
+- Review event, recipient count, status, ticket, message, and notification
+  choices before confirming guest writes.
+- Preview `invite_guests_from_event` before confirming it; previews return counts,
+  not guest identities.
+- Use `list_guests` and `get_guest` only when guest-level data is necessary.
 - Prefer `registration_summary` when only aggregate counts are required.
 - Keep dependencies updated and report vulnerabilities privately to the
   maintainers.
@@ -262,8 +292,9 @@ in issues, tests, commits, or pull requests.
 
 ## API
 
-The server uses Luma's official API at `https://public-api.luma.com`. API keys
-are scoped to the calendar and permissions configured in Luma.
+The server uses Luma's official API at `https://public-api.luma.com`. Request
+shapes are based on Luma's [OpenAPI specification](https://public-api.luma.com/openapi.json).
+API keys are scoped to the calendar and permissions configured in Luma.
 
 ## License
 

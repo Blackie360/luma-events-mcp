@@ -1,13 +1,13 @@
 {
   "name": "luma-events",
-  "version": "0.2.0+codex.20260723120000",
-  "description": "Manage Luma events and registration insights from Codex.",
+  "version": "0.3.0+codex.20260725194308",
+  "description": "Manage Luma events, guests, invitations, and registration insights from Codex.",
   "author": {
     "name": "Felix Jumason",
     "email": "felixkent360@gmail.com",
     "url": "https://github.com/Blackie360"
   },
-  "homepage": "https://docs.lu.ma/reference/getting-started-with-your-api",
+  "homepage": "https://docs.luma.com/reference/getting-started-with-your-api",
   "license": "MIT",
   "keywords": [
     "luma",
@@ -17,8 +17,8 @@
   ],
   "interface": {
     "displayName": "Luma Events",
-    "shortDescription": "Plan events and inspect Luma registrations.",
-    "longDescription": "Create and update Luma events, approve waitlisted guests, list calendar events, inspect guests, and summarize registrations without leaving Codex.",
+    "shortDescription": "Manage Luma events, guests, and invitations.",
+    "longDescription": "Create and update Luma events, look up and add guests, send invitations, build privacy-conscious audiences from past events, approve waitlists safely, and summarize registrations without leaving Codex.",
     "developerName": "Felix Jumason",
     "category": "Productivity",
     "capabilities": [
@@ -28,8 +28,8 @@
     "websiteURL": "https://lu.ma",
     "defaultPrompt": [
       "Show my upcoming Luma events.",
-      "Summarize registrations for my next event.",
-      "Prepare a Luma event from this plan."
+      "Preview guests from my last event to invite next.",
+      "Summarize registrations for my next event."
     ]
   },
   "mcpServers": "./.mcp.json"
