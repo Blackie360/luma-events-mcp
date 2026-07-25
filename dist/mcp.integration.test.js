@@ -3,6 +3,95 @@ import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createServer } from "./index.js";
+test("MCP client discovers and safely calls delete_event", async (t) => {
+    process.env.LUMA_API_KEY = "test-key";
+    const requests = [];
+    t.mock.method(globalThis, "fetch", async (input, init) => {
+        const url = input instanceof URL
+            ? input
+            : new URL(typeof input === "string" ? input : input.url);
+        const method = init?.method ?? "GET";
+        const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+        requests.push({ path: url.pathname, method, body });
+        if (url.pathname === "/v1/events/get") {
+            return Response.json({ id: "evt-test", name: "Test Event", start_at: "2026-08-14T14:00:00Z" });
+        }
+        if (url.pathname === "/v1/events/cancel/request") {
+            return Response.json({ cancellation_token: "cancel-secret", is_paid: false, guest_count: 12 });
+        }
+        assert.equal(url.pathname, "/v1/events/cancel");
+        return Response.json({});
+    });
+    const server = createServer();
+    const client = new Client({ name: "luma-events-delete-test", version: "1.0.0" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    t.after(async () => {
+        await client.close();
+        await server.close();
+    });
+    const listed = await client.listTools();
+    assert.ok(listed.tools.some((tool) => tool.name === "delete_event"));
+    const preview = await client.callTool({
+        name: "delete_event",
+        arguments: {
+            event_id: "evt-test",
+            confirmed: false
+        }
+    });
+    assert.deepEqual(preview.structuredContent, {
+        result: {
+            event_id: "evt-test",
+            name: "Test Event",
+            start_at: "2026-08-14T14:00:00Z",
+            guest_count: 12,
+            is_paid: false,
+            refund_choice_required: false,
+            guests_will_be_notified: true,
+            irreversible: true,
+            preview_only: true,
+            confirmation_required: true
+        }
+    });
+    assert.equal(requests.some((request) => request.path === "/v1/events/cancel"), false);
+    const deleted = await client.callTool({
+        name: "delete_event",
+        arguments: {
+            event_id: "evt-test",
+            confirmed: true
+        }
+    });
+    assert.deepEqual(deleted.structuredContent, {
+        result: {
+            event_id: "evt-test",
+            name: "Test Event",
+            start_at: "2026-08-14T14:00:00Z",
+            guest_count: 12,
+            is_paid: false,
+            refund_choice_required: false,
+            guests_will_be_notified: true,
+            irreversible: true,
+            preview_only: false,
+            deleted: true,
+            refunds_requested: false
+        }
+    });
+    assert.deepEqual(requests, [
+        { path: "/v1/events/get", method: "GET", body: undefined },
+        { path: "/v1/events/cancel/request", method: "POST", body: { event_id: "evt-test" } },
+        { path: "/v1/events/get", method: "GET", body: undefined },
+        { path: "/v1/events/cancel/request", method: "POST", body: { event_id: "evt-test" } },
+        {
+            path: "/v1/events/cancel",
+            method: "POST",
+            body: {
+                event_id: "evt-test",
+                cancellation_token: "cancel-secret"
+            }
+        }
+    ]);
+});
 test("MCP client discovers and safely calls approve_waitlisted_guests", async (t) => {
     process.env.LUMA_API_KEY = "test-key";
     const requests = [];

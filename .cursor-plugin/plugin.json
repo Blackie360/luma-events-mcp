@@ -1,0 +1,32 @@
+{
+  "name": "luma-events",
+  "version": "0.4.0",
+  "description": "Manage Luma events, guests, invitations, and registrations from Cursor.",
+  "author": {
+    "name": "Felix Jumason",
+    "email": "felixkent360@gmail.com",
+    "url": "https://github.com/Blackie360"
+  },
+  "homepage": "https://docs.luma.com/reference/getting-started-with-your-api",
+  "license": "MIT",
+  "keywords": [
+    "luma",
+    "events",
+    "registrations",
+    "cursor"
+  ],
+  "variables": {
+    "type": "object",
+    "properties": {
+      "LUMA_API_KEY": {
+        "type": "string",
+        "title": "Luma API key",
+        "description": "Calendar API key used to access the Luma API.",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "LUMA_API_KEY"
+    ]
+  }
+}

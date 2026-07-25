@@ -19,6 +19,11 @@ export type LumaRequest = (path: string, options?: {
     query?: Record<string, unknown>;
     body?: unknown;
 }) => Promise<unknown>;
+export declare function deleteEvent(input: {
+    event_id: string;
+    should_refund?: boolean;
+    confirmed?: boolean;
+}, request?: LumaRequest): Promise<Json>;
 export declare function approveWaitlistedGuests(event_id: string, options?: {
     max_approvals?: number;
     send_email?: boolean;

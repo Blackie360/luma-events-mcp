@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { approveWaitlistedGuests, inviteGuestsFromEvent, luma, requireConfirmation, sendInvites, summarizeRegistrations } from "./index.js";
+import { approveWaitlistedGuests, deleteEvent, inviteGuestsFromEvent, luma, requireConfirmation, sendInvites, summarizeRegistrations } from "./index.js";
 test("requireConfirmation blocks unconfirmed writes", () => {
     assert.throws(() => requireConfirmation(false, "creating an event"), /Confirmation required before creating an event/);
     assert.doesNotThrow(() => requireConfirmation(true, "creating an event"));
@@ -9,6 +9,89 @@ test("luma includes API errors in a useful exception", async (t) => {
     t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ message: "invalid request" }), { status: 400, headers: { "content-type": "application/json" } }));
     process.env.LUMA_API_KEY = "test-key";
     await assert.rejects(luma("/v1/events/get", { query: { event_id: "evt-test" } }), /Luma API 400:.*invalid request/);
+});
+test("event deletion previews impact without canceling", async () => {
+    const requests = [];
+    const request = async (path, options = {}) => {
+        requests.push({ path, body: options.body });
+        if (path === "/v1/events/get") {
+            return { id: "evt-test", name: "Test Event", start_at: "2026-08-14T14:00:00Z" };
+        }
+        if (path === "/v1/events/cancel/request") {
+            return { cancellation_token: "cancel-secret", is_paid: true, guest_count: 42 };
+        }
+        throw new Error("cancel endpoint must not be called during preview");
+    };
+    const preview = await deleteEvent({ event_id: "evt-test", confirmed: false }, request);
+    assert.deepEqual(preview, {
+        event_id: "evt-test",
+        name: "Test Event",
+        start_at: "2026-08-14T14:00:00Z",
+        guest_count: 42,
+        is_paid: true,
+        refund_choice_required: true,
+        guests_will_be_notified: true,
+        irreversible: true,
+        preview_only: true,
+        confirmation_required: true
+    });
+    assert.deepEqual(requests, [
+        { path: "/v1/events/get", body: undefined },
+        { path: "/v1/events/cancel/request", body: { event_id: "evt-test" } }
+    ]);
+    assert.doesNotMatch(JSON.stringify(preview), /cancel-secret/);
+});
+test("event deletion uses Luma's two-step cancellation flow", async () => {
+    const requests = [];
+    const request = async (path, options = {}) => {
+        requests.push({ path, body: options.body });
+        if (path === "/v1/events/get")
+            return { name: "Paid Event" };
+        if (path === "/v1/events/cancel/request") {
+            return { cancellation_token: "cancel-secret", is_paid: true, guest_count: 7 };
+        }
+        assert.equal(path, "/v1/events/cancel");
+        return {};
+    };
+    const deleted = await deleteEvent({ event_id: "evt-paid", should_refund: true, confirmed: true }, request);
+    assert.deepEqual(requests, [
+        { path: "/v1/events/get", body: undefined },
+        { path: "/v1/events/cancel/request", body: { event_id: "evt-paid" } },
+        {
+            path: "/v1/events/cancel",
+            body: {
+                event_id: "evt-paid",
+                cancellation_token: "cancel-secret",
+                should_refund: true
+            }
+        }
+    ]);
+    assert.deepEqual(deleted, {
+        event_id: "evt-paid",
+        name: "Paid Event",
+        guest_count: 7,
+        is_paid: true,
+        refund_choice_required: true,
+        guests_will_be_notified: true,
+        irreversible: true,
+        preview_only: false,
+        deleted: true,
+        refunds_requested: true
+    });
+});
+test("event deletion requires an explicit refund choice for paid events", async () => {
+    let cancelCalls = 0;
+    const request = async (path) => {
+        if (path === "/v1/events/get")
+            return { name: "Paid Event" };
+        if (path === "/v1/events/cancel/request") {
+            return { cancellation_token: "cancel-secret", is_paid: true, guest_count: 7 };
+        }
+        cancelCalls += 1;
+        return {};
+    };
+    await assert.rejects(deleteEvent({ event_id: "evt-paid", confirmed: true }, request), /should_refund must be set explicitly/);
+    assert.equal(cancelCalls, 0);
 });
 test("registration summary paginates and avoids returning identities", async () => {
     const cursors = [];

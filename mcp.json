@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "luma-events": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "dist/index.js"
+      ],
+      "env": {
+        "LUMA_API_KEY": "${LUMA_API_KEY}"
+      }
+    }
+  }
+}

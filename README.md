@@ -4,7 +4,8 @@ An open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 server for managing Luma events from MCP-compatible AI clients.
 
 The server connects to the calendar associated with your Luma API key. It can
-manage events, inspect registrations, look up and add guests, send soft
+create, update, and safely delete events, inspect registrations, look up and add
+guests, send soft
 invitations, safely invite audiences from past events, and approve waitlists
 without exceeding a conservative per-run write budget.
 
@@ -14,6 +15,8 @@ without exceeding a conservative per-run write budget.
 - List approved or pending calendar events.
 - Retrieve complete details for an event or one guest.
 - Create and update events after explicit user confirmation.
+- Preview and permanently delete events through Luma's two-step cancellation
+  flow after explicit confirmation.
 - Add guests directly with optional ticket and registration-answer data.
 - Send soft event invitations by email and, for linked accounts, SMS.
 - Preview and invite deduplicated audiences from earlier events without exposing identities.
@@ -71,6 +74,13 @@ visibility, registration, waitlist, and guest-list settings.
 ### `update_event`
 
 Updates selected event fields after explicit confirmation.
+
+### `delete_event`
+
+Previews and permanently deletes an event through Luma's two-step cancellation
+flow. The preview reports the exact event, approved guest count, and whether the
+event is paid. Confirmed deletion is irreversible, notifies all guests, and
+requires an explicit refund choice for paid events.
 
 ### `add_guests`
 
@@ -215,6 +225,29 @@ This repository also includes:
 After connecting, ask the client to run `verify_connection` before using the
 other tools.
 
+### Cursor
+
+The included `.cursor/mcp.json` lets Cursor start the server automatically from
+this workspace. Copy `.env.example` to `.env`, add your Luma API key, build the
+server once, and restart Cursor:
+
+```bash
+cp .env.example .env
+pnpm install
+pnpm build
+```
+
+You do not need to run `pnpm start`. Cursor launches `dist/index.js` when it
+connects to the MCP server. Rebuild only after changing the source code.
+
+Open **Cursor Settings → Tools & MCP**, enable `luma-events`, then ask Cursor to
+verify the Luma connection.
+
+For installation as a Cursor plugin, this repository also includes
+`.cursor-plugin/plugin.json` and the root `mcp.json`. Cursor requests the
+`LUMA_API_KEY` plugin variable during configuration and reuses it on subsequent
+starts.
+
 ## Example prompts
 
 - "Verify my Luma connection."
@@ -227,6 +260,7 @@ other tools.
 - "Add these guests to the event as pending approval after I confirm."
 - "Prepare an event for Friday at 5 PM, but do not create it until I confirm."
 - "Close registration for this event after showing me the proposed change."
+- "Preview deleting this event, including the guest and refund impact."
 
 ## Development
 
@@ -248,18 +282,23 @@ Run the test suite:
 pnpm test
 ```
 
-The test suite covers write confirmation, API error reporting, pagination,
-resumable waitlist approvals, invite batching, audience deduplication,
-privacy-conscious previews, and MCP tool discovery and execution.
+The test suite covers write confirmation, two-step event deletion, API error
+reporting, pagination, resumable waitlist approvals, invite batching, audience
+deduplication, privacy-conscious previews, and MCP tool discovery and execution.
 
 ## Project structure
 
 ```text
 .
 ├── .codex-plugin/plugin.json  # Codex plugin metadata
+├── .cursor/mcp.json           # Project-local Cursor MCP configuration
+├── .cursor-plugin/plugin.json # Cursor plugin metadata and secret variables
+├── .env.example               # Local environment template
 ├── .mcp.json                  # Plugin MCP server configuration
+├── mcp.json                   # Cursor plugin MCP configuration
 ├── src/index.ts               # MCP server and Luma API integration
 ├── src/index.test.ts          # Node.js tests
+├── src/mcp.integration.test.ts # MCP integration tests
 ├── package.json               # Scripts and dependencies
 └── tsconfig.json              # TypeScript configuration
 ```
@@ -267,6 +306,8 @@ privacy-conscious previews, and MCP tool discovery and execution.
 ## Security and privacy
 
 - Never commit `LUMA_API_KEY` or any `.env` file.
+- Always preview `delete_event` and confirm the exact event and refund choice;
+  deletion is irreversible and Luma notifies every guest.
 - Review requested changes before confirming write operations.
 - Review event, recipient count, status, ticket, message, and notification
   choices before confirming guest writes.

@@ -21168,7 +21168,7 @@ function requireConfirmation(confirmed, action) {
   if (!confirmed) throw new Error(`Confirmation required before ${action}. Review the proposed values, ask the user to confirm, then retry with confirmed=true.`);
 }
 function createServer() {
-  const server = new McpServer({ name: "luma-events", version: "0.3.0" });
+  const server = new McpServer({ name: "luma-events", version: "0.4.0" });
   server.registerTool("verify_connection", {
     title: "Verify Luma connection",
     description: "Verify the configured Luma API key and return the authenticated user.",
@@ -21253,6 +21253,18 @@ function createServer() {
   }, async ({ confirmed, ...body }) => {
     requireConfirmation(confirmed, "updating the Luma event");
     return result(await luma("/v1/events/update", { method: "POST", body }));
+  });
+  server.registerTool("delete_event", {
+    title: "Cancel and delete Luma event",
+    description: "Preview or permanently cancel and delete one Luma event. Call with confirmed=false first to show the exact event, approved guest count, and whether a refund choice is required. Cancellation is irreversible: Luma deletes the event and notifies all guests. Call with confirmed=true only after the user explicitly confirms the event and, for a paid event, whether guests should be refunded.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      should_refund: external_exports.boolean().optional().describe("Whether to refund paid guests. Required when the preview reports is_paid=true."),
+      confirmed: external_exports.boolean().default(false).describe("False returns a non-destructive preview. True permanently cancels and deletes the event after explicit user confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  }, async (input) => {
+    return result(await deleteEvent(input));
   });
   server.registerTool("add_guests", {
     title: "Add Luma guests",
@@ -21350,6 +21362,56 @@ function createServer() {
     return result(await summarizeRegistrations(event_id));
   });
   return server;
+}
+async function deleteEvent(input, request = luma) {
+  const event = await request("/v1/events/get", {
+    query: { event_id: input.event_id }
+  });
+  const cancellation = await request("/v1/events/cancel/request", {
+    method: "POST",
+    body: { event_id: input.event_id }
+  });
+  const cancellationToken = cancellation.cancellation_token;
+  if (typeof cancellationToken !== "string" || !cancellationToken) {
+    throw new Error("Luma did not return a cancellation token; the event was not deleted.");
+  }
+  if (typeof cancellation.is_paid !== "boolean" || typeof cancellation.guest_count !== "number") {
+    throw new Error("Luma returned an invalid cancellation preview; the event was not deleted.");
+  }
+  const preview = {
+    event_id: input.event_id,
+    ...typeof event.name === "string" ? { name: event.name } : {},
+    ...typeof event.start_at === "string" ? { start_at: event.start_at } : {},
+    guest_count: cancellation.guest_count,
+    is_paid: cancellation.is_paid,
+    refund_choice_required: cancellation.is_paid,
+    guests_will_be_notified: true,
+    irreversible: true
+  };
+  if (!input.confirmed) {
+    return {
+      ...preview,
+      preview_only: true,
+      confirmation_required: true
+    };
+  }
+  if (cancellation.is_paid && input.should_refund === void 0) {
+    throw new Error("should_refund must be set explicitly before deleting a paid event.");
+  }
+  await request("/v1/events/cancel", {
+    method: "POST",
+    body: {
+      event_id: input.event_id,
+      cancellation_token: cancellationToken,
+      ...cancellation.is_paid ? { should_refund: input.should_refund } : {}
+    }
+  });
+  return {
+    ...preview,
+    preview_only: false,
+    deleted: true,
+    refunds_requested: cancellation.is_paid ? input.should_refund === true : false
+  };
 }
 async function approveWaitlistedGuests(event_id, options = {}, request = luma) {
   const send_email = options.send_email ?? true;
@@ -21549,6 +21611,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 export {
   approveWaitlistedGuests,
   createServer,
+  deleteEvent,
   inviteGuestsFromEvent,
   luma,
   requireConfirmation,

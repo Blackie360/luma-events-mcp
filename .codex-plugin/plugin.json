@@ -1,7 +1,7 @@
 {
   "name": "luma-events",
-  "version": "0.3.0+codex.20260725194308",
-  "description": "Manage Luma events, guests, invitations, and registration insights from Codex.",
+  "version": "0.4.0+codex.20260725",
+  "description": "Manage Luma events, event deletion, guests, invitations, and registration insights from Codex.",
   "author": {
     "name": "Felix Jumason",
     "email": "felixkent360@gmail.com",
@@ -18,7 +18,7 @@
   "interface": {
     "displayName": "Luma Events",
     "shortDescription": "Manage Luma events, guests, and invitations.",
-    "longDescription": "Create and update Luma events, look up and add guests, send invitations, build privacy-conscious audiences from past events, approve waitlists safely, and summarize registrations without leaving Codex.",
+    "longDescription": "Create, update, and safely delete Luma events, look up and add guests, send invitations, build privacy-conscious audiences from past events, approve waitlists safely, and summarize registrations without leaving Codex.",
     "developerName": "Felix Jumason",
     "category": "Productivity",
     "capabilities": [
