@@ -7,6 +7,7 @@ type GuestContact = {
     name?: string;
 };
 type ApprovalStatus = "approved" | "session" | "pending_approval" | "invited" | "declined" | "waitlist";
+type WritableGuestStatus = "approved" | "declined" | "pending_approval" | "waitlist";
 export declare function luma(path: string, options?: {
     method?: "GET" | "POST";
     query?: Record<string, unknown>;
@@ -19,6 +20,35 @@ export type LumaRequest = (path: string, options?: {
     query?: Record<string, unknown>;
     body?: unknown;
 }) => Promise<unknown>;
+export declare function updateGuestStatus(input: {
+    event_id: string;
+    guest_id: string;
+    status: WritableGuestStatus;
+    should_refund?: boolean;
+    send_email?: boolean;
+    message?: string;
+    confirmed?: boolean;
+}, request?: LumaRequest): Promise<Json>;
+export declare function updateGuestTickets(input: {
+    event_id: string;
+    guest_id: string;
+    ticket_ids_to_remove?: string[];
+    tickets_to_add?: Array<{
+        event_ticket_type_id: string;
+    }>;
+    send_email?: boolean;
+    confirmed?: boolean;
+}, request?: LumaRequest): Promise<Json>;
+export declare function deleteTicketType(input: {
+    event_id: string;
+    event_ticket_type_id: string;
+    confirmed?: boolean;
+}, request?: LumaRequest): Promise<Json>;
+export declare function removeHost(input: {
+    event_id: string;
+    email: string;
+    confirmed?: boolean;
+}, request?: LumaRequest): Promise<Json>;
 export declare function deleteEvent(input: {
     event_id: string;
     should_refund?: boolean;

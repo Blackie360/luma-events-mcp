@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { approveWaitlistedGuests, deleteEvent, inviteGuestsFromEvent, luma, requireConfirmation, sendInvites, summarizeRegistrations } from "./index.js";
+import { approveWaitlistedGuests, deleteTicketType, deleteEvent, inviteGuestsFromEvent, luma, removeHost, requireConfirmation, sendInvites, summarizeRegistrations, updateGuestStatus, updateGuestTickets } from "./index.js";
 test("requireConfirmation blocks unconfirmed writes", () => {
     assert.throws(() => requireConfirmation(false, "creating an event"), /Confirmation required before creating an event/);
     assert.doesNotThrow(() => requireConfirmation(true, "creating an event"));
@@ -375,5 +375,323 @@ test("inviteGuestsFromEvent rejects a source event used as its own target", asyn
     };
     await assert.rejects(inviteGuestsFromEvent({ source_event_id: "evt-same", target_event_id: "evt-same" }, request), /must be different/);
     assert.equal(called, false);
+});
+test("guest status update previews paid impact and requires an explicit refund choice", async () => {
+    const writes = [];
+    const request = async (path, options = {}) => {
+        if (path === "/v1/events/get") {
+            return { id: "evt-test", name: "Private Event", start_at: "2026-08-14T14:00:00Z" };
+        }
+        if (path === "/v1/events/guests/get") {
+            return {
+                id: "gst-one",
+                user_email: "private@example.com",
+                user_name: "Private Person",
+                approval_status: "approved",
+                registration_answers: [{ label: "Secret", value: "Private" }],
+                event_ticket_orders: [{ id: "order-secret" }],
+                event_tickets: [
+                    { id: "tkt-paid", name: "Paid", amount: 2500, currency: "kes", is_captured: true }
+                ]
+            };
+        }
+        assert.equal(path, "/v1/events/guests/update-status");
+        writes.push(options.body);
+        return {};
+    };
+    const preview = await updateGuestStatus({
+        event_id: "evt-test",
+        guest_id: "private@example.com",
+        status: "declined",
+        send_email: true,
+        message: "We are sorry.",
+        confirmed: false
+    }, request);
+    assert.deepEqual(preview, {
+        event_id: "evt-test",
+        name: "Private Event",
+        start_at: "2026-08-14T14:00:00Z",
+        guest: {
+            id: "gst-one",
+            user_name: "Private Person",
+            user_email: "private@example.com",
+            approval_status: "approved"
+        },
+        current_status: "approved",
+        target_status: "declined",
+        captured_paid_ticket_count: 1,
+        refund_choice_required: true,
+        send_email: true,
+        message: "We are sorry.",
+        preview_only: true,
+        confirmation_required: true
+    });
+    assert.equal(writes.length, 0);
+    assert.doesNotMatch(JSON.stringify(preview), /Secret|order-secret/);
+    await assert.rejects(updateGuestStatus({
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        status: "declined",
+        confirmed: true
+    }, request), /should_refund must be set explicitly/);
+    assert.equal(writes.length, 0);
+    const updated = await updateGuestStatus({
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        status: "declined",
+        should_refund: false,
+        send_email: false,
+        confirmed: true
+    }, request);
+    assert.deepEqual(writes, [{
+            event_id: "evt-test",
+            guest_id: "gst-one",
+            status: "declined",
+            should_refund: false,
+            send_email: false
+        }]);
+    assert.deepEqual(updated, {
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        previous_status: "approved",
+        status: "declined",
+        refund_requested: false,
+        send_email: false,
+        updated: true
+    });
+});
+test("guest status update rejects a message when email is disabled before any API call", async () => {
+    let calls = 0;
+    const request = async () => {
+        calls += 1;
+        return {};
+    };
+    await assert.rejects(updateGuestStatus({
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        status: "approved",
+        send_email: false,
+        message: "Cannot be delivered"
+    }, request), /cannot be sent when send_email is false/);
+    assert.equal(calls, 0);
+});
+test("guest ticket update previews exact changes and preserves repeated additions", async () => {
+    const writes = [];
+    const request = async (path, options = {}) => {
+        if (path === "/v1/events/get") {
+            return { id: "evt-test", name: "Ticket Event" };
+        }
+        if (path === "/v1/events/guests/get") {
+            return {
+                id: "gst-one",
+                user_email: "private@example.com",
+                user_name: "Private Person",
+                approval_status: "approved",
+                registration_answers: [{ label: "Secret", value: "Private" }],
+                event_tickets: [
+                    { id: "tkt-keep", name: "General", event_ticket_type_id: "ttype-general", amount: 0, is_captured: true },
+                    { id: "tkt-remove", name: "Workshop", event_ticket_type_id: "ttype-workshop", amount: 0, is_captured: true }
+                ]
+            };
+        }
+        if (path === "/v1/events/ticket-types/list") {
+            return {
+                entries: [
+                    { id: "ttype-general", name: "General", type: "free" },
+                    { id: "ttype-workshop", name: "Workshop", type: "paid", cents: 1000, currency: "kes" }
+                ]
+            };
+        }
+        assert.equal(path, "/v1/events/guests/update-tickets");
+        writes.push(options.body);
+        return {};
+    };
+    const input = {
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        ticket_ids_to_remove: ["tkt-remove"],
+        tickets_to_add: [
+            { event_ticket_type_id: "ttype-workshop" },
+            { event_ticket_type_id: "ttype-workshop" }
+        ],
+        send_email: false
+    };
+    const preview = await updateGuestTickets({ ...input, confirmed: false }, request);
+    assert.equal(writes.length, 0);
+    assert.equal(preview.projected_ticket_count, 3);
+    assert.equal(preview.ticket_types_to_add.length, 2);
+    assert.doesNotMatch(JSON.stringify(preview), /Secret/);
+    const updated = await updateGuestTickets({ ...input, confirmed: true }, request);
+    assert.deepEqual(writes, [{
+            event_id: "evt-test",
+            guest_id: "gst-one",
+            ticket_ids_to_remove: ["tkt-remove"],
+            tickets_to_add: [
+                { event_ticket_type_id: "ttype-workshop" },
+                { event_ticket_type_id: "ttype-workshop" }
+            ],
+            send_email: false
+        }]);
+    assert.deepEqual(updated, {
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        ticket_ids_removed: ["tkt-remove"],
+        ticket_type_ids_added: ["ttype-workshop", "ttype-workshop"],
+        send_email: false,
+        updated: true
+    });
+});
+test("guest ticket update rejects no-ops, duplicate removals, unknown tickets, and removing the last ticket", async () => {
+    let calls = 0;
+    const request = async (path) => {
+        calls += 1;
+        if (path === "/v1/events/get")
+            return { id: "evt-test", name: "Ticket Event" };
+        if (path === "/v1/events/guests/get") {
+            return {
+                id: "gst-one",
+                event_tickets: [{ id: "tkt-only", name: "Only Ticket", event_ticket_type_id: "ttype-one" }]
+            };
+        }
+        return { entries: [{ id: "ttype-one", name: "Only", type: "free" }] };
+    };
+    await assert.rejects(updateGuestTickets({ event_id: "evt-test", guest_id: "gst-one" }, request), /at least one ticket/);
+    await assert.rejects(updateGuestTickets({
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        ticket_ids_to_remove: ["tkt-only", "tkt-only"]
+    }, request), /duplicate ticket IDs/);
+    assert.equal(calls, 0);
+    await assert.rejects(updateGuestTickets({
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        ticket_ids_to_remove: ["tkt-missing"]
+    }, request), /does not belong to the selected guest/);
+    await assert.rejects(updateGuestTickets({
+        event_id: "evt-test",
+        guest_id: "gst-one",
+        ticket_ids_to_remove: ["tkt-only"]
+    }, request), /At least one valid ticket must remain/);
+});
+test("ticket type deletion previews ownership and deletes only after confirmation", async () => {
+    const writes = [];
+    const request = async (path, options = {}) => {
+        if (path === "/v1/events/get")
+            return { id: "evt-test", name: "Ticket Event" };
+        if (path === "/v1/events/ticket-types/list") {
+            return {
+                entries: [
+                    { id: "ttype-one", name: "Extra", type: "free", is_hidden: true, require_approval: false }
+                ]
+            };
+        }
+        assert.equal(path, "/v1/events/ticket-types/delete");
+        writes.push(options.body);
+        return {};
+    };
+    const preview = await deleteTicketType({
+        event_id: "evt-test",
+        event_ticket_type_id: "ttype-one",
+        confirmed: false
+    }, request);
+    assert.equal(writes.length, 0);
+    assert.deepEqual(preview.ticket_type, {
+        id: "ttype-one",
+        name: "Extra",
+        type: "free",
+        require_approval: false,
+        is_hidden: true
+    });
+    const deleted = await deleteTicketType({
+        event_id: "evt-test",
+        event_ticket_type_id: "ttype-one",
+        confirmed: true
+    }, request);
+    assert.deepEqual(writes, [{ event_ticket_type_id: "ttype-one" }]);
+    assert.deepEqual(deleted, {
+        event_id: "evt-test",
+        event_ticket_type_id: "ttype-one",
+        name: "Extra",
+        deleted: true
+    });
+    await assert.rejects(deleteTicketType({
+        event_id: "evt-test",
+        event_ticket_type_id: "ttype-missing"
+    }, request), /does not belong to event/);
+});
+test("host removal matches email case-insensitively and previews before writing", async () => {
+    const writes = [];
+    const request = async (path, options = {}) => {
+        if (path === "/v1/events/get") {
+            return {
+                id: "evt-test",
+                name: "Host Event",
+                hosts: [{ id: "usr-host", email: "HOST@example.com", name: "Test Host", avatar_url: "https://example.com/a.png" }]
+            };
+        }
+        assert.equal(path, "/v1/events/hosts/remove");
+        writes.push(options.body);
+        return {};
+    };
+    const preview = await removeHost({
+        event_id: "evt-test",
+        email: "host@example.com",
+        confirmed: false
+    }, request);
+    assert.equal(writes.length, 0);
+    assert.deepEqual(preview.host, {
+        id: "usr-host",
+        email: "HOST@example.com",
+        name: "Test Host"
+    });
+    assert.equal(preview.host_found_in_event_response, true);
+    const removed = await removeHost({
+        event_id: "evt-test",
+        email: "host@example.com",
+        confirmed: true
+    }, request);
+    assert.deepEqual(writes, [{ event_id: "evt-test", email: "host@example.com" }]);
+    assert.deepEqual(removed, {
+        event_id: "evt-test",
+        email: "HOST@example.com",
+        removed: true
+    });
+});
+test("host removal can preview and remove a hidden host omitted from the event response", async () => {
+    const writes = [];
+    const request = async (path, options = {}) => {
+        if (path === "/v1/events/get") {
+            return {
+                id: "evt-test",
+                name: "Host Event",
+                hosts: [{ id: "usr-owner", email: "owner@example.com", name: "Owner" }]
+            };
+        }
+        assert.equal(path, "/v1/events/hosts/remove");
+        writes.push(options.body);
+        return {};
+    };
+    const preview = await removeHost({
+        event_id: "evt-test",
+        email: "hidden@example.com",
+        confirmed: false
+    }, request);
+    assert.equal(writes.length, 0);
+    assert.deepEqual(preview.host, {
+        email: "hidden@example.com"
+    });
+    assert.equal(preview.host_found_in_event_response, false);
+    assert.match(String(preview.visibility_warning), /omits hidden hosts/);
+    const removed = await removeHost({
+        event_id: "evt-test",
+        email: "hidden@example.com",
+        confirmed: true
+    }, request);
+    assert.deepEqual(writes, [{ event_id: "evt-test", email: "hidden@example.com" }]);
+    assert.deepEqual(removed, {
+        event_id: "evt-test",
+        email: "hidden@example.com",
+        removed: true
+    });
 });
 //# sourceMappingURL=index.test.js.map

@@ -5,9 +5,9 @@ server for managing Luma events from MCP-compatible AI clients.
 
 The server connects to the calendar associated with your Luma API key. It can
 create, update, and safely delete events, inspect registrations, look up and add
-guests, send soft
-invitations, safely invite audiences from past events, and approve waitlists
-without exceeding a conservative per-run write budget.
+guests, manage guest statuses and tickets, configure ticket types and event
+hosts, send soft invitations, safely invite audiences from past events, and
+approve waitlists without exceeding a conservative per-run write budget.
 
 ## Features
 
@@ -18,6 +18,10 @@ without exceeding a conservative per-run write budget.
 - Preview and permanently delete events through Luma's two-step cancellation
   flow after explicit confirmation.
 - Add guests directly with optional ticket and registration-answer data.
+- Preview and update individual guest statuses with explicit paid-ticket refund choices.
+- Preview complimentary ticket additions and non-refunding ticket removals.
+- List, inspect, create, update, and safely delete event ticket types.
+- Add and update event hosts or check-in staff, and preview host removal.
 - Send soft event invitations by email and, for linked accounts, SMS.
 - Preview and invite deduplicated audiences from earlier events without exposing identities.
 - Approve waitlists in resumable 90-guest runs with partial-failure reporting.
@@ -25,9 +29,10 @@ without exceeding a conservative per-run write budget.
 - Count registration states and check-ins without returning guest identities.
 - Paginate automatically when producing registration summaries and audience previews.
 
-Write operations are guarded by a required `confirmed` value. MCP clients should
-show the proposed event details to the user and obtain explicit approval before
-calling a write tool.
+Write operations are guarded by a required `confirmed` value. Higher-impact
+guest, ticket, host-removal, and deletion tools return a structured preview when
+`confirmed=false`. MCP clients should show the preview or proposed arguments to
+the user and obtain explicit approval before retrying with `confirmed=true`.
 
 ## Screenshots
 
@@ -64,6 +69,62 @@ Returns complete details for a single event.
 
 Returns one guest by guest ID, ticket key, guest key, or email, including
 ticket-order details. This response contains personal information.
+
+### `update_guest_status`
+
+Previews and updates one guest to `approved`, `declined`, `pending_approval`, or
+`waitlist`. The preview returns only the identity and status information needed
+for confirmation. Moving an approved guest with captured paid tickets to a
+non-approved state requires an explicit refund choice.
+
+### `update_guest_tickets`
+
+Previews and changes one guest's tickets. Added tickets are complimentary
+administrative tickets even when the ticket type is normally paid, may exceed
+capacity, and are not idempotent. Removed tickets are invalidated without a
+refund, and at least one valid ticket must remain.
+
+### `list_ticket_types`
+
+Lists an event's ticket types and can optionally include hidden ticket types.
+
+### `get_ticket_type`
+
+Returns one ticket type by ticket-type ID.
+
+### `create_ticket_type`
+
+Creates a free, paid, or flexible-price ticket type after explicit confirmation.
+Supports approval and visibility settings, descriptions, sale dates, capacity,
+currency, fixed price, and minimum flexible price.
+
+### `update_ticket_type`
+
+Updates selected ticket-type settings after explicit confirmation. Nullable
+fields can be used to clear descriptions, dates, capacity, or pricing values.
+
+### `delete_ticket_type`
+
+Verifies that a ticket type belongs to the selected event and returns an exact
+preview before deletion. Luma refuses deletion when tickets have been sold or
+when the ticket type is the event's last visible option.
+
+### `add_host`
+
+Adds a visible or hidden event host with `manager`, `check-in`, or `none` access
+after explicit confirmation.
+
+### `update_host`
+
+Updates an event host's access level or public visibility after explicit
+confirmation. Luma does not allow changing the event creator's access.
+
+### `remove_host`
+
+Resolves the event and host email case-insensitively and returns a preview before
+removing the host. Visible hosts include their returned Luma identity. Luma may
+omit hidden hosts from the event response, so those previews clearly identify
+the requested email as unverified. A removed host can be added again later.
 
 ### `create_event`
 
@@ -258,6 +319,12 @@ starts.
 - "Preview the waitlisted guests from the last event who are not already on my next event."
 - "Invite that previewed audience to the next event after I confirm."
 - "Add these guests to the event as pending approval after I confirm."
+- "Preview approving this guest and show whether a refund choice is involved."
+- "Preview replacing this guest's workshop ticket without sending email."
+- "List every ticket type for this event, including hidden tickets."
+- "Create a hidden free speaker ticket after I confirm."
+- "Add this person as hidden check-in staff after I confirm."
+- "Preview removing this host from the event."
 - "Prepare an event for Friday at 5 PM, but do not create it until I confirm."
 - "Close registration for this event after showing me the proposed change."
 - "Preview deleting this event, including the guest and refund impact."
@@ -284,7 +351,9 @@ pnpm test
 
 The test suite covers write confirmation, two-step event deletion, API error
 reporting, pagination, resumable waitlist approvals, invite batching, audience
-deduplication, privacy-conscious previews, and MCP tool discovery and execution.
+deduplication, guest status refunds, guest-ticket invariants, ticket-type
+ownership and deletion, host matching, privacy-conscious previews, and MCP tool
+discovery and execution.
 
 ## Project structure
 
@@ -311,6 +380,12 @@ deduplication, privacy-conscious previews, and MCP tool discovery and execution.
 - Review requested changes before confirming write operations.
 - Review event, recipient count, status, ticket, message, and notification
   choices before confirming guest writes.
+- Preview `update_guest_status` and explicitly choose whether to refund a
+  captured paid ticket before moving that guest out of approved status.
+- Preview `update_guest_tickets`; additions are complimentary and may bypass
+  capacity, removals do not refund, and disabling email does not suppress
+  Luma's in-app notification.
+- Preview ticket-type and host removals and confirm the exact event and target.
 - Preview `invite_guests_from_event` before confirming it; previews return counts,
   not guest identities.
 - Use `list_guests` and `get_guest` only when guest-level data is necessary.

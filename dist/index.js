@@ -21105,6 +21105,8 @@ var DEFAULT_API_BASE = "https://public-api.luma.com";
 var MAX_APPROVALS_PER_RUN = 90;
 var INVITE_BATCH_SIZE = 100;
 var approvalStatusSchema = external_exports.enum(["approved", "session", "pending_approval", "invited", "declined", "waitlist"]);
+var writableGuestStatusSchema = external_exports.enum(["approved", "declined", "pending_approval", "waitlist"]);
+var hostAccessLevelSchema = external_exports.enum(["none", "check-in", "manager"]);
 var guestContactSchema = external_exports.object({
   email: external_exports.string().email(),
   name: external_exports.string().min(1).optional()
@@ -21125,6 +21127,21 @@ var guestToAddSchema = guestContactSchema.extend({
   })).optional()
 });
 var ticketSchema = external_exports.object({ event_ticket_type_id: external_exports.string().min(1) });
+var isoDateSchema = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected an ISO 8601 date in YYYY-MM-DD format.");
+var ticketTypeMutableFields = {
+  name: external_exports.string().min(1).optional(),
+  require_approval: external_exports.boolean().optional(),
+  is_hidden: external_exports.boolean().optional(),
+  description: external_exports.string().nullable().optional(),
+  valid_start_at: isoDateSchema.nullable().optional(),
+  valid_end_at: isoDateSchema.nullable().optional(),
+  max_capacity: external_exports.number().int().nonnegative().nullable().optional(),
+  type: external_exports.enum(["free", "paid"]).optional(),
+  cents: external_exports.number().int().nonnegative().nullable().optional(),
+  currency: external_exports.string().min(3).max(20).nullable().optional(),
+  is_flexible: external_exports.boolean().optional(),
+  min_cents: external_exports.number().int().nonnegative().nullable().optional()
+};
 function apiKey() {
   const value = process.env.LUMA_API_KEY?.trim();
   if (!value) {
@@ -21168,7 +21185,7 @@ function requireConfirmation(confirmed, action) {
   if (!confirmed) throw new Error(`Confirmation required before ${action}. Review the proposed values, ask the user to confirm, then retry with confirmed=true.`);
 }
 function createServer() {
-  const server = new McpServer({ name: "luma-events", version: "0.4.0" });
+  const server = new McpServer({ name: "luma-events", version: "0.5.0" });
   server.registerTool("verify_connection", {
     title: "Verify Luma connection",
     description: "Verify the configured Luma API key and return the authenticated user.",
@@ -21202,6 +21219,165 @@ function createServer() {
     },
     annotations: { readOnlyHint: true, openWorldHint: true }
   }, async (input) => result(await luma("/v1/events/guests/get", { query: input })));
+  server.registerTool("update_guest_status", {
+    title: "Update Luma guest status",
+    description: "Preview or update one guest's status. The preview shows the exact event, minimal guest identity, current and target status, captured paid-ticket count, refund choice, and notification settings. Moving an approved paid guest to a non-approved status requires an explicit refund choice.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      guest_id: external_exports.string().min(1).describe("Guest ID, ticket key, guest key, or email."),
+      status: writableGuestStatusSchema,
+      should_refund: external_exports.boolean().optional(),
+      send_email: external_exports.boolean().default(true),
+      message: external_exports.string().max(200).optional(),
+      confirmed: external_exports.boolean().default(false).describe("False returns a non-mutating preview. True applies the status change after explicit confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  }, async (input) => result(await updateGuestStatus(input)));
+  server.registerTool("update_guest_tickets", {
+    title: "Update Luma guest tickets",
+    description: "Preview or add and remove tickets for one guest. Added tickets are complimentary administrative tickets and may exceed capacity. Removed tickets are invalidated without a refund. Luma still sends an in-app notification even when email is disabled.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      guest_id: external_exports.string().min(1).describe("Guest ID, ticket key, guest key, or email."),
+      ticket_ids_to_remove: external_exports.array(external_exports.string().min(1)).max(100).default([]),
+      tickets_to_add: external_exports.array(ticketSchema).max(100).default([]),
+      send_email: external_exports.boolean().default(true),
+      confirmed: external_exports.boolean().default(false).describe("False returns a non-mutating preview. True applies the ticket changes after explicit confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  }, async (input) => result(await updateGuestTickets(input)));
+  server.registerTool("list_ticket_types", {
+    title: "List Luma ticket types",
+    description: "List all ticket types for an event, optionally including hidden ticket types.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      include_hidden: external_exports.boolean().default(false)
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true }
+  }, async ({ event_id, include_hidden }) => result(await luma("/v1/events/ticket-types/list", {
+    query: {
+      event_id,
+      ...include_hidden ? { include_hidden: "true" } : {}
+    }
+  })));
+  server.registerTool("get_ticket_type", {
+    title: "Get Luma ticket type",
+    description: "Get one ticket type by its ticket-type ID.",
+    inputSchema: {
+      event_ticket_type_id: external_exports.string().min(1)
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true }
+  }, async (input) => result(await luma("/v1/events/ticket-types/get", { query: input })));
+  server.registerTool("create_ticket_type", {
+    title: "Create Luma ticket type",
+    description: "Create a free, paid, or flexible-price ticket type after explicit confirmation. Review the event, price, currency, visibility, approval, sale dates, and capacity before confirming.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      name: external_exports.string().min(1),
+      type: external_exports.enum(["free", "paid"]),
+      require_approval: external_exports.boolean().optional(),
+      is_hidden: external_exports.boolean().optional(),
+      description: external_exports.string().nullable().optional(),
+      valid_start_at: isoDateSchema.nullable().optional(),
+      valid_end_at: isoDateSchema.nullable().optional(),
+      max_capacity: external_exports.number().int().nonnegative().nullable().optional(),
+      cents: external_exports.number().int().nonnegative().nullable().optional(),
+      currency: external_exports.string().min(3).max(20).nullable().optional(),
+      is_flexible: external_exports.boolean().optional(),
+      min_cents: external_exports.number().int().nonnegative().nullable().optional(),
+      confirmed: external_exports.boolean().describe("Must be true only after explicit user confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, async ({ confirmed, ...body }) => {
+    requireConfirmation(confirmed, "creating the Luma ticket type");
+    return result(await luma("/v1/events/ticket-types/create", { method: "POST", body }));
+  });
+  server.registerTool("update_ticket_type", {
+    title: "Update Luma ticket type",
+    description: "Update selected fields on a ticket type after explicit confirmation. Nullable fields clear their current value.",
+    inputSchema: {
+      event_ticket_type_id: external_exports.string().min(1),
+      ...ticketTypeMutableFields,
+      confirmed: external_exports.boolean().describe("Must be true only after explicit user confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+  }, async ({ confirmed, event_ticket_type_id, ...changes }) => {
+    requireConfirmation(confirmed, "updating the Luma ticket type");
+    requireAtLeastOneChange(changes, "update_ticket_type");
+    return result(await luma("/v1/events/ticket-types/update", {
+      method: "POST",
+      body: { event_ticket_type_id, ...changes }
+    }));
+  });
+  server.registerTool("delete_ticket_type", {
+    title: "Delete Luma ticket type",
+    description: "Preview or delete one ticket type. The preview verifies that the ticket type belongs to the event and shows its exact settings. Luma may refuse deletion when tickets have been sold or when this is the last visible ticket type.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      event_ticket_type_id: external_exports.string().min(1),
+      confirmed: external_exports.boolean().default(false).describe("False returns a non-mutating preview. True deletes the ticket type after explicit confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  }, async (input) => result(await deleteTicketType(input)));
+  server.registerTool("add_host", {
+    title: "Add Luma event host",
+    description: "Add a host or check-in staff member to an event after explicit confirmation.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      email: external_exports.string().email(),
+      name: external_exports.string().min(1).optional(),
+      access_level: hostAccessLevelSchema.default("manager"),
+      is_visible: external_exports.boolean().default(true),
+      confirmed: external_exports.boolean().describe("Must be true only after explicit user confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
+  }, async ({ confirmed, ...body }) => {
+    requireConfirmation(confirmed, "adding the Luma event host");
+    await luma("/v1/events/hosts/add", { method: "POST", body });
+    return result({
+      event_id: body.event_id,
+      email: body.email,
+      access_level: body.access_level,
+      is_visible: body.is_visible,
+      added: true
+    });
+  });
+  server.registerTool("update_host", {
+    title: "Update Luma event host",
+    description: "Update a host's access level or public visibility after explicit confirmation. The event creator's access level cannot be changed.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      email: external_exports.string().email(),
+      access_level: hostAccessLevelSchema.optional(),
+      is_visible: external_exports.boolean().optional(),
+      confirmed: external_exports.boolean().describe("Must be true only after explicit user confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
+  }, async ({ confirmed, event_id, email: email2, ...changes }) => {
+    requireConfirmation(confirmed, "updating the Luma event host");
+    requireAtLeastOneChange(changes, "update_host");
+    await luma("/v1/events/hosts/update", {
+      method: "POST",
+      body: { event_id, email: email2, ...changes }
+    });
+    return result({
+      event_id,
+      email: email2,
+      ...changes.access_level === void 0 ? {} : { access_level: changes.access_level },
+      ...changes.is_visible === void 0 ? {} : { is_visible: changes.is_visible },
+      updated: true
+    });
+  });
+  server.registerTool("remove_host", {
+    title: "Remove Luma event host",
+    description: "Preview or remove one host from an event. The preview resolves the event and exact email. Visible hosts include their returned Luma identity; hidden hosts may be omitted from the event response and are clearly marked as unverified before confirmation.",
+    inputSchema: {
+      event_id: external_exports.string().min(1),
+      email: external_exports.string().email(),
+      confirmed: external_exports.boolean().default(false).describe("False returns a non-mutating preview. True removes the host after explicit confirmation.")
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+  }, async (input) => result(await removeHost(input)));
   const eventFields = {
     name: external_exports.string().min(1),
     start_at: external_exports.string().datetime(),
@@ -21362,6 +21538,221 @@ function createServer() {
     return result(await summarizeRegistrations(event_id));
   });
   return server;
+}
+async function updateGuestStatus(input, request = luma) {
+  const send_email = input.send_email ?? true;
+  if (!send_email && input.message) {
+    throw new Error("A guest status message cannot be sent when send_email is false.");
+  }
+  const [eventValue, guestValue] = await Promise.all([
+    request("/v1/events/get", { query: { event_id: input.event_id } }),
+    request("/v1/events/guests/get", {
+      query: { event_id: input.event_id, id: input.guest_id }
+    })
+  ]);
+  const event = requireRecord(eventValue, "event");
+  const guest = requireRecord(guestValue, "guest");
+  const currentStatus = typeof guest.approval_status === "string" ? guest.approval_status : "unknown";
+  const capturedPaidTickets = recordArray(guest.event_tickets).filter((ticket) => ticket.is_captured === true && typeof ticket.amount === "number" && ticket.amount > 0);
+  const refundChoiceRequired = currentStatus === "approved" && input.status !== "approved" && capturedPaidTickets.length > 0;
+  const preview = {
+    ...eventIdentity(input.event_id, event),
+    guest: guestIdentity(input.guest_id, guest),
+    current_status: currentStatus,
+    target_status: input.status,
+    captured_paid_ticket_count: capturedPaidTickets.length,
+    refund_choice_required: refundChoiceRequired,
+    ...input.should_refund === void 0 ? {} : { should_refund: input.should_refund },
+    send_email,
+    ...input.message === void 0 ? {} : { message: input.message }
+  };
+  if (!input.confirmed) {
+    return {
+      ...preview,
+      preview_only: true,
+      confirmation_required: true
+    };
+  }
+  if (refundChoiceRequired && input.should_refund === void 0) {
+    throw new Error("should_refund must be set explicitly before moving an approved paid guest to a non-approved status.");
+  }
+  await request("/v1/events/guests/update-status", {
+    method: "POST",
+    body: {
+      event_id: input.event_id,
+      guest_id: input.guest_id,
+      status: input.status,
+      ...input.should_refund === void 0 ? {} : { should_refund: input.should_refund },
+      send_email,
+      ...input.message === void 0 ? {} : { message: input.message }
+    }
+  });
+  return {
+    event_id: input.event_id,
+    guest_id: typeof guest.id === "string" ? guest.id : input.guest_id,
+    previous_status: currentStatus,
+    status: input.status,
+    refund_requested: input.should_refund === true,
+    send_email,
+    updated: true
+  };
+}
+async function updateGuestTickets(input, request = luma) {
+  const ticketIdsToRemove = input.ticket_ids_to_remove ?? [];
+  const ticketsToAdd = input.tickets_to_add ?? [];
+  const send_email = input.send_email ?? true;
+  if (ticketIdsToRemove.length === 0 && ticketsToAdd.length === 0) {
+    throw new Error("update_guest_tickets requires at least one ticket to add or remove.");
+  }
+  if (new Set(ticketIdsToRemove).size !== ticketIdsToRemove.length) {
+    throw new Error("ticket_ids_to_remove cannot contain duplicate ticket IDs.");
+  }
+  const [eventValue, guestValue, ticketTypesValue] = await Promise.all([
+    request("/v1/events/get", { query: { event_id: input.event_id } }),
+    request("/v1/events/guests/get", {
+      query: { event_id: input.event_id, id: input.guest_id }
+    }),
+    request("/v1/events/ticket-types/list", {
+      query: { event_id: input.event_id, include_hidden: "true" }
+    })
+  ]);
+  const event = requireRecord(eventValue, "event");
+  const guest = requireRecord(guestValue, "guest");
+  const existingTickets = recordArray(guest.event_tickets);
+  const ticketTypes = recordArray(requireRecord(ticketTypesValue, "ticket type list").entries);
+  const existingById = new Map(
+    existingTickets.filter((ticket) => typeof ticket.id === "string").map((ticket) => [ticket.id, ticket])
+  );
+  const ticketTypesById = new Map(
+    ticketTypes.filter((ticketType) => typeof ticketType.id === "string").map((ticketType) => [ticketType.id, ticketType])
+  );
+  for (const ticketId of ticketIdsToRemove) {
+    if (!existingById.has(ticketId)) {
+      throw new Error(`Ticket ${ticketId} does not belong to the selected guest.`);
+    }
+  }
+  for (const ticket of ticketsToAdd) {
+    if (!ticketTypesById.has(ticket.event_ticket_type_id)) {
+      throw new Error(`Ticket type ${ticket.event_ticket_type_id} does not belong to the selected event.`);
+    }
+  }
+  const projectedTicketCount = existingTickets.length - ticketIdsToRemove.length + ticketsToAdd.length;
+  if (projectedTicketCount < 1) {
+    throw new Error("At least one valid ticket must remain on the guest.");
+  }
+  const preview = {
+    ...eventIdentity(input.event_id, event),
+    guest: guestIdentity(input.guest_id, guest),
+    current_ticket_count: existingTickets.length,
+    projected_ticket_count: projectedTicketCount,
+    tickets_to_remove: ticketIdsToRemove.map((ticketId) => ticketIdentity(existingById.get(ticketId))),
+    ticket_types_to_add: ticketsToAdd.map((ticket) => ticketTypeIdentity(
+      ticketTypesById.get(ticket.event_ticket_type_id)
+    )),
+    send_email,
+    warnings: [
+      "Added tickets are complimentary administrative tickets even when the ticket type is normally paid.",
+      "Removed tickets are invalidated without a refund.",
+      "Luma still sends an in-app notification when email is disabled.",
+      "Administrative ticket additions can exceed event or ticket-type capacity."
+    ]
+  };
+  if (!input.confirmed) {
+    return {
+      ...preview,
+      preview_only: true,
+      confirmation_required: true
+    };
+  }
+  await request("/v1/events/guests/update-tickets", {
+    method: "POST",
+    body: {
+      event_id: input.event_id,
+      guest_id: input.guest_id,
+      ticket_ids_to_remove: ticketIdsToRemove,
+      tickets_to_add: ticketsToAdd,
+      send_email
+    }
+  });
+  return {
+    event_id: input.event_id,
+    guest_id: typeof guest.id === "string" ? guest.id : input.guest_id,
+    ticket_ids_removed: ticketIdsToRemove,
+    ticket_type_ids_added: ticketsToAdd.map((ticket) => ticket.event_ticket_type_id),
+    send_email,
+    updated: true
+  };
+}
+async function deleteTicketType(input, request = luma) {
+  const [eventValue, ticketTypesValue] = await Promise.all([
+    request("/v1/events/get", { query: { event_id: input.event_id } }),
+    request("/v1/events/ticket-types/list", {
+      query: { event_id: input.event_id, include_hidden: "true" }
+    })
+  ]);
+  const event = requireRecord(eventValue, "event");
+  const ticketTypes = recordArray(requireRecord(ticketTypesValue, "ticket type list").entries);
+  const ticketType = ticketTypes.find((entry) => entry.id === input.event_ticket_type_id);
+  if (!ticketType) {
+    throw new Error(`Ticket type ${input.event_ticket_type_id} does not belong to event ${input.event_id}.`);
+  }
+  const preview = {
+    ...eventIdentity(input.event_id, event),
+    ticket_type: ticketTypeIdentity(ticketType),
+    deletion_constraints: [
+      "Luma refuses deletion when tickets have been sold for this ticket type.",
+      "Luma refuses deletion when this is the event's last visible ticket type."
+    ]
+  };
+  if (!input.confirmed) {
+    return {
+      ...preview,
+      preview_only: true,
+      confirmation_required: true
+    };
+  }
+  await request("/v1/events/ticket-types/delete", {
+    method: "POST",
+    body: { event_ticket_type_id: input.event_ticket_type_id }
+  });
+  return {
+    event_id: input.event_id,
+    event_ticket_type_id: input.event_ticket_type_id,
+    ...typeof ticketType.name === "string" ? { name: ticketType.name } : {},
+    deleted: true
+  };
+}
+async function removeHost(input, request = luma) {
+  const event = requireRecord(await request("/v1/events/get", {
+    query: { event_id: input.event_id }
+  }), "event");
+  const normalizedEmail = input.email.trim().toLowerCase();
+  const host = recordArray(event.hosts).find((entry) => typeof entry.email === "string" && entry.email.trim().toLowerCase() === normalizedEmail);
+  const preview = {
+    ...eventIdentity(input.event_id, event),
+    host: host ? hostIdentity(host) : { email: input.email },
+    host_found_in_event_response: Boolean(host),
+    ...host ? {} : {
+      visibility_warning: "Luma omits hidden hosts from the event response, so this email cannot be independently verified before removal."
+    },
+    reversible_by_readding: true
+  };
+  if (!input.confirmed) {
+    return {
+      ...preview,
+      preview_only: true,
+      confirmation_required: true
+    };
+  }
+  await request("/v1/events/hosts/remove", {
+    method: "POST",
+    body: { event_id: input.event_id, email: input.email }
+  });
+  return {
+    event_id: input.event_id,
+    email: host && typeof host.email === "string" ? host.email : input.email,
+    removed: true
+  };
 }
 async function deleteEvent(input, request = luma) {
   const event = await request("/v1/events/get", {
@@ -21573,6 +21964,79 @@ async function inviteGuestsFromEvent(input, request = luma) {
     ...sent
   };
 }
+function requireAtLeastOneChange(changes, toolName) {
+  if (!Object.values(changes).some((value) => value !== void 0)) {
+    throw new Error(`${toolName} requires at least one field to change.`);
+  }
+}
+function requireRecord(value, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Luma returned an invalid ${label} response.`);
+  }
+  return value;
+}
+function recordArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry) => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry));
+}
+function pickPrimitiveFields(record2, fields) {
+  const selected = {};
+  for (const field of fields) {
+    const value = record2[field];
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      selected[field] = value;
+    }
+  }
+  return selected;
+}
+function eventIdentity(event_id, event) {
+  return {
+    event_id,
+    ...pickPrimitiveFields(event, ["name", "start_at"])
+  };
+}
+function guestIdentity(inputId, guest) {
+  return {
+    id: typeof guest.id === "string" ? guest.id : inputId,
+    ...pickPrimitiveFields(guest, ["user_name", "user_email", "approval_status"])
+  };
+}
+function ticketIdentity(ticket) {
+  return pickPrimitiveFields(ticket, [
+    "id",
+    "name",
+    "event_ticket_type_id",
+    "amount",
+    "currency",
+    "is_captured"
+  ]);
+}
+function ticketTypeIdentity(ticketType) {
+  return pickPrimitiveFields(ticketType, [
+    "id",
+    "name",
+    "type",
+    "require_approval",
+    "is_hidden",
+    "description",
+    "valid_start_at",
+    "valid_end_at",
+    "max_capacity",
+    "cents",
+    "currency",
+    "is_flexible",
+    "min_cents"
+  ]);
+}
+function hostIdentity(host) {
+  return pickPrimitiveFields(host, [
+    "id",
+    "email",
+    "name",
+    "first_name",
+    "last_name"
+  ]);
+}
 function guestEmail(guest) {
   if (typeof guest.user_email !== "string") return void 0;
   const email2 = guest.user_email.trim().toLowerCase();
@@ -21612,10 +22076,14 @@ export {
   approveWaitlistedGuests,
   createServer,
   deleteEvent,
+  deleteTicketType,
   inviteGuestsFromEvent,
   luma,
+  removeHost,
   requireConfirmation,
   sendInvites,
-  summarizeRegistrations
+  summarizeRegistrations,
+  updateGuestStatus,
+  updateGuestTickets
 };
 //# sourceMappingURL=index.js.map

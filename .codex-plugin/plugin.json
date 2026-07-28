@@ -1,7 +1,7 @@
 {
   "name": "luma-events",
-  "version": "0.4.0+codex.20260725",
-  "description": "Manage Luma events, event deletion, guests, invitations, and registration insights from Codex.",
+  "version": "0.5.0+codex.20260728",
+  "description": "Manage Luma events, guests, tickets, hosts, invitations, and registration insights from Codex.",
   "author": {
     "name": "Felix Jumason",
     "email": "felixkent360@gmail.com",
@@ -17,8 +17,8 @@
   ],
   "interface": {
     "displayName": "Luma Events",
-    "shortDescription": "Manage Luma events, guests, and invitations.",
-    "longDescription": "Create, update, and safely delete Luma events, look up and add guests, send invitations, build privacy-conscious audiences from past events, approve waitlists safely, and summarize registrations without leaving Codex.",
+    "shortDescription": "Manage Luma events, guests, tickets, and hosts.",
+    "longDescription": "Create, update, and safely delete Luma events, manage guest statuses and tickets, configure ticket types and hosts, send invitations, build privacy-conscious audiences from past events, approve waitlists safely, and summarize registrations without leaving Codex.",
     "developerName": "Felix Jumason",
     "category": "Productivity",
     "capabilities": [
@@ -28,6 +28,8 @@
     "websiteURL": "https://lu.ma",
     "defaultPrompt": [
       "Show my upcoming Luma events.",
+      "Preview changing a guest's status or tickets.",
+      "Show the ticket types and hosts for my next event.",
       "Preview guests from my last event to invite next.",
       "Summarize registrations for my next event."
     ]
