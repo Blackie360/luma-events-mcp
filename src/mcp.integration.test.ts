@@ -6,6 +6,8 @@ import test, { type TestContext } from "node:test";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
+import { VERSION } from "./version.js";
+
 const MODERN_PROTOCOL_VERSION = "2026-07-28";
 type MockRequest = { path: string; method: string; body?: unknown; query: string };
 type MockResponder = (request: MockRequest, url: URL) => unknown | Promise<unknown>;
@@ -133,7 +135,7 @@ test("stdio entry serves MCP 2026-07-28 and rejects legacy initialization", asyn
   });
 
   assert.equal(client.getProtocolEra(), "modern");
-  assert.equal(client.getServerVersion()?.version, "0.7.0");
+  assert.equal(client.getServerVersion()?.version, VERSION);
   const listed = await client.listTools(undefined, { cacheMode: "refresh" });
   assert.equal(listed.tools.length, 23);
   assert.equal(listed.cacheScope, "private");

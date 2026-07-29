@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 import { readStoredApiKey, runInteractiveSetup, setupHelp } from "./setup.js";
+import { VERSION } from "./version.js";
 
 const DEFAULT_API_BASE = "https://public-api.luma.com";
 const MAX_APPROVALS_PER_RUN = 90;
@@ -109,7 +110,7 @@ export function requireConfirmation(confirmed: boolean, action: string): void {
 
 export function createServer(): McpServer {
   const server = new McpServer(
-    { name: "luma-events", version: "0.7.0" },
+    { name: "luma-events", version: VERSION },
     {
       capabilities: { tools: {} },
       supportedProtocolVersions: ["2026-07-28"]
@@ -1179,7 +1180,7 @@ if (isMainModule()) {
       process.exitCode = await runInteractiveSetup(setupArgs);
     }
   } else if (command === "--version" || command === "-v") {
-    process.stdout.write("0.7.0\n");
+    process.stdout.write(`${VERSION}\n`);
   } else if (command === "--help" || command === "-h" || command === "help") {
     process.stdout.write(`${setupHelp()}\n`);
   } else if (command) {

@@ -21,8 +21,9 @@
     "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --minify-whitespace --platform=node --format=esm --target=node20 --sourcemap --outfile=dist/index.js && pnpm strip-generated-whitespace",
     "check": "tsc -p tsconfig.json --noEmit",
     "prepack": "pnpm check && pnpm test",
+    "release:prepare": "node scripts/prepare-release.mjs",
     "strip-generated-whitespace": "node --input-type=module -e \"import fs from 'node:fs'; const path = 'dist/index.js'; const source = fs.readFileSync(path, 'utf8'); fs.writeFileSync(path, source.replace(/[\\\\t ]+$/gm, ''));\"",
-    "test": "pnpm build && node --test dist/*.test.js",
+    "test": "pnpm build && node --test dist/*.test.js scripts/*.test.mjs",
     "start": "node dist/index.js"
   },
   "engines": {

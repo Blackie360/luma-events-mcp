@@ -415,6 +415,7 @@ file permissions, Cursor configuration preservation, and secret non-disclosure.
 ├── .github/workflows/          # Trusted npm publishing workflow
 ├── .mcp.json                   # Plugin MCP server configuration
 ├── docs/images/                # Redacted README screenshots
+├── scripts/prepare-release.mjs # Automatic release version synchronization
 ├── src/index.ts                # Server and Luma API integration
 ├── src/index.test.ts           # Unit tests
 ├── src/mcp.integration.test.ts # MCP integration tests
@@ -424,18 +425,22 @@ file permissions, Cursor configuration preservation, and secret non-disclosure.
 └── tsconfig.json
 ```
 
-### Release process
+### Automatic release process
 
-Release tags publish through npm trusted publishing and generate a GitHub
-Release:
+Every non-release commit that reaches `main`—through a direct push or a merged
+branch—runs `.github/workflows/publish.yml`. The serialized workflow:
 
-```bash
-git tag v0.7.0
-git push origin v0.7.0
-```
+1. Uses the version in `package.json` when that version has not been published.
+2. Otherwise advances the highest published stable version by one patch.
+3. Synchronizes the npm package, runtime, Codex, and Cursor versions.
+4. Runs the type-checker, all tests, the production build, and `git diff --check`.
+5. Commits generated release metadata when needed and creates the matching tag.
+6. Publishes through npm trusted publishing and creates a GitHub Release.
 
-The tag must match the version in `package.json`. Never reuse a published npm
-version or move an existing release tag.
+Release commits use `chore: release vX.Y.Z` and are ignored by the trigger,
+preventing recursive releases. GitHub's workflow concurrency guard ensures that
+only one npm publication runs at a time. Maintainers can also start the same
+process manually with **Actions → Publish npm package → Run workflow**.
 
 ---
 
