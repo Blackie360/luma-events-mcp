@@ -8,7 +8,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 
 import { VERSION } from "./version.js";
 
-const MODERN_PROTOCOL_VERSION = "2026-07-28";
+const PROTOCOL_VERSION = "2025-06-18";
 type MockRequest = { path: string; method: string; body?: unknown; query: string };
 type MockResponder = (request: MockRequest, url: URL) => unknown | Promise<unknown>;
 
@@ -53,7 +53,7 @@ async function createLumaMock(t: TestContext, responder: MockResponder) {
   return { requests, apiBase: `http://127.0.0.1:${address.port}` };
 }
 
-async function connectModernClient(name: string, apiBase?: string): Promise<Client> {
+async function connectClient(name: string, apiBase?: string): Promise<Client> {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: ["dist/index.js"],
@@ -65,14 +65,14 @@ async function connectModernClient(name: string, apiBase?: string): Promise<Clie
   });
   const client = new Client(
     { name, version: "1.0.0" },
-    { versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } } }
+    { versionNegotiation: { mode: "legacy" } }
   );
   await client.connect(transport);
-  assert.equal(client.getProtocolEra(), "modern");
+  assert.equal(client.getProtocolEra(), "legacy");
   return client;
 }
 
-async function sendLegacyInitialize(): Promise<Record<string, unknown>> {
+async function sendInitialize(protocolVersion: string): Promise<Record<string, unknown>> {
   const child = spawn(process.execPath, ["dist/index.js"], {
     env: { ...process.env, LUMA_API_KEY: "test-key" },
     stdio: ["pipe", "pipe", "pipe"]
@@ -83,7 +83,7 @@ async function sendLegacyInitialize(): Promise<Record<string, unknown>> {
     let stderr = "";
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      reject(new Error(`Timed out waiting for legacy rejection. stderr=${stderr}`));
+      reject(new Error(`Timed out waiting for initialize response. stderr=${stderr}`));
     }, 5_000);
 
     child.stdout.on("data", (chunk) => {
@@ -111,18 +111,18 @@ async function sendLegacyInitialize(): Promise<Record<string, unknown>> {
       id: 1,
       method: "initialize",
       params: {
-        protocolVersion: "2025-11-25",
+        protocolVersion,
         capabilities: {},
-        clientInfo: { name: "legacy-audit", version: "1.0.0" }
+        clientInfo: { name: "protocol-audit", version: "1.0.0" }
       }
     })}\n`);
   });
 }
 
-test("stdio entry serves MCP 2026-07-28 and rejects legacy initialization", async (t) => {
+test("stdio entry serves MCP 2025-06-18", async (t) => {
   const client = new Client(
-    { name: "luma-events-modern-stdio-test", version: "1.0.0" },
-    { versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } } }
+    { name: "luma-events-stdio-test", version: "1.0.0" },
+    { versionNegotiation: { mode: "legacy" } }
   );
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -134,18 +134,21 @@ test("stdio entry serves MCP 2026-07-28 and rejects legacy initialization", asyn
     await client.close();
   });
 
-  assert.equal(client.getProtocolEra(), "modern");
+  assert.equal(client.getProtocolEra(), "legacy");
   assert.equal(client.getServerVersion()?.version, VERSION);
   const listed = await client.listTools(undefined, { cacheMode: "refresh" });
   assert.equal(listed.tools.length, 23);
-  assert.equal(listed.cacheScope, "private");
-  assert.equal(listed.ttlMs, 0);
 
-  const legacyResponse = await sendLegacyInitialize();
-  assert.equal((legacyResponse.error as { code?: number } | undefined)?.code, -32022);
-  assert.match(
-    String((legacyResponse.error as { message?: string } | undefined)?.message),
-    /unsupported protocol version/i
+  const supportedResponse = await sendInitialize(PROTOCOL_VERSION);
+  assert.equal(
+    (supportedResponse.result as { protocolVersion?: string } | undefined)?.protocolVersion,
+    PROTOCOL_VERSION
+  );
+
+  const newerRequestResponse = await sendInitialize("2026-07-28");
+  assert.equal(
+    (newerRequestResponse.result as { protocolVersion?: string } | undefined)?.protocolVersion,
+    PROTOCOL_VERSION
   );
 });
 
@@ -161,7 +164,7 @@ test("MCP client discovers and safely calls delete_event", async (t) => {
     return {};
   });
 
-  const client = await connectModernClient("luma-events-delete-test", apiBase);
+  const client = await connectClient("luma-events-delete-test", apiBase);
   t.after(async () => {
     await client.close();
   });
@@ -245,7 +248,7 @@ test("MCP client discovers and safely calls approve_waitlisted_guests", async (t
     return {};
   });
 
-  const client = await connectModernClient("luma-events-test", apiBase);
+  const client = await connectClient("luma-events-test", apiBase);
   t.after(async () => {
     await client.close();
   });
@@ -326,7 +329,7 @@ test("MCP client discovers and safely calls the v0.3 guest tools", async (t) => 
     return {};
   });
 
-  const client = await connectModernClient("luma-events-v03-test", apiBase);
+  const client = await connectClient("luma-events-v03-test", apiBase);
   t.after(async () => {
     await client.close();
   });
@@ -473,7 +476,7 @@ test("MCP client discovers and safely calls the guest, ticket, and host tools", 
     return {};
   });
 
-  const client = await connectModernClient("luma-events-v05-test", apiBase);
+  const client = await connectClient("luma-events-v05-test", apiBase);
   t.after(async () => {
     await client.close();
   });

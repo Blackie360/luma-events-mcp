@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { McpServer } from "@modelcontextprotocol/server";
-import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -113,7 +113,7 @@ export function createServer(): McpServer {
     { name: "luma-events", version: VERSION },
     {
       capabilities: { tools: {} },
-      supportedProtocolVersions: ["2026-07-28"]
+      supportedProtocolVersions: ["2025-06-18"]
     }
   );
 
@@ -1187,7 +1187,7 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
     process.stderr.write(`Unknown command: ${command}\n\n${setupHelp()}\n`);
     process.exitCode = 1;
   } else {
-    serveStdio(createServer, { legacy: "reject" });
+    await createServer().connect(new StdioServerTransport());
   }
 }
 

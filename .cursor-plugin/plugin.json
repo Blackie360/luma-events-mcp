@@ -1,6 +1,6 @@
 {
   "name": "luma-events",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Manage Luma events, guests, tickets, hosts, invitations, and registrations from Cursor.",
   "author": {
     "name": "Felix Jumason",

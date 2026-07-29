@@ -1,6 +1,6 @@
 {
   "name": "luma-events",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "MCP server and Codex/Cursor plugin for safely managing Luma events, guests, tickets, and hosts.",
   "type": "module",
   "bin": {

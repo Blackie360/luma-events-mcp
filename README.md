@@ -18,11 +18,12 @@ important changes.
 > This is an independent, community-built project and is not affiliated with or
 > endorsed by Luma.
 
-> [!WARNING]
-> Version 0.6.0 and newer support only MCP
-> `2026-07-28` through the MCP TypeScript SDK v2. Clients that use the legacy
-> `initialize` flow or a 2025 protocol revision are rejected instead of being
-> silently downgraded.
+> [!NOTE]
+> Version 0.7.4 uses MCP `2025-06-18` for compatibility with stable releases
+> of Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI. Experimental clients
+> configured to require MCP `2026-07-28` must switch back to `2025-06-18`.
+> For Codex 0.146.0 or newer, run
+> `codex features disable mcp_2026_07_28` before restarting Codex.
 
 ### Use cases
 
@@ -46,7 +47,7 @@ important changes.
 2. A Luma calendar with API access.
 3. A calendar API key from the
    [Luma API settings](https://docs.luma.com/reference/getting-started-with-your-api).
-4. An MCP client that supports the `2026-07-28` protocol revision, such as a
+4. An MCP client that supports the `2025-06-18` protocol revision, such as a
    current version of
    [OpenAI Codex](https://developers.openai.com/codex/) or
    [Cursor](https://www.cursor.com/).
@@ -417,11 +418,11 @@ pnpm pack
 Tests cover confirmation guards, event deletion, API errors, pagination,
 resumable waitlist approval, invitation batching, audience deduplication,
 refund rules, ticket invariants, host matching, privacy-conscious previews, and
-modern MCP discovery. The integration suite launches the packaged stdio server,
-pins negotiation to MCP `2026-07-28`, verifies all 23 tools, and confirms that a
-legacy `initialize` request is rejected. Setup tests cover client detection,
-selection, masked-secret ordering, API-key verification, consent, restrictive
-file permissions, Cursor configuration preservation, and secret non-disclosure.
+MCP discovery. The integration suite launches the packaged stdio server,
+pins negotiation to MCP `2025-06-18`, and verifies all 23 tools. Setup tests
+cover client detection, selection, masked-secret ordering, API-key verification,
+consent, restrictive file permissions, Cursor configuration preservation, and
+secret non-disclosure.
 
 ### Project structure
 
