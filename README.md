@@ -1,38 +1,260 @@
+[![npm version](https://img.shields.io/npm/v/%40blackie360%2Fluma-events-mcp?logo=npm)](https://www.npmjs.com/package/@blackie360/luma-events-mcp)
+[![Release](https://github.com/Blackie360/luma-events-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/Blackie360/luma-events-mcp/actions/workflows/publish.yml)
+[![Node.js](https://img.shields.io/node/v/%40blackie360%2Fluma-events-mcp?logo=node.js)](https://www.npmjs.com/package/@blackie360/luma-events-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 # Luma Events MCP Server
 
-An open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
-server for managing Luma events from MCP-compatible AI clients.
+The Luma Events MCP Server connects AI tools directly to your Luma calendar.
+It lets agents create and manage events, work with guests and tickets, organize
+hosts, send invitations, approve waitlists, and summarize registrations through
+natural-language requests.
 
-The server connects to the calendar associated with your Luma API key. It can
-create, update, and safely delete events, inspect registrations, look up and add
-guests, manage guest statuses and tickets, configure ticket types and event
-hosts, send soft invitations, safely invite audiences from past events, and
-approve waitlists without exceeding a conservative per-run write budget.
+Built for event organizers who want Luma operations inside Codex, Cursor, or
+another MCP-compatible client—without giving up explicit confirmation before
+important changes.
 
-## Features
+> [!IMPORTANT]
+> This is an independent, community-built project and is not affiliated with or
+> endorsed by Luma.
 
-- Verify the configured Luma API connection.
-- List approved or pending calendar events.
-- Retrieve complete details for an event or one guest.
-- Create and update events after explicit user confirmation.
-- Preview and permanently delete events through Luma's two-step cancellation
-  flow after explicit confirmation.
-- Add guests directly with optional ticket and registration-answer data.
-- Preview and update individual guest statuses with explicit paid-ticket refund choices.
-- Preview complimentary ticket additions and non-refunding ticket removals.
-- List, inspect, create, update, and safely delete event ticket types.
-- Add and update event hosts or check-in staff, and preview host removal.
-- Send soft event invitations by email and, for linked accounts, SMS.
-- Preview and invite deduplicated audiences from earlier events without exposing identities.
-- Approve waitlists in resumable 90-guest runs with partial-failure reporting.
-- List guests for event operations.
-- Count registration states and check-ins without returning guest identities.
-- Paginate automatically when producing registration summaries and audience previews.
+### Use cases
 
-Write operations are guarded by a required `confirmed` value. Higher-impact
-guest, ticket, host-removal, and deletion tools return a structured preview when
-`confirmed=false`. MCP clients should show the preview or proposed arguments to
-the user and obtain explicit approval before retrying with `confirmed=true`.
+- **Event operations:** Create, update, inspect, and safely delete events.
+- **Guest management:** Add guests, change approval states, and manage guest tickets.
+- **Ticketing:** Create free, paid, or flexible-price ticket types and control sales.
+- **Host coordination:** Add managers or check-in staff and control public visibility.
+- **Audience growth:** Invite people from past events without exposing preview identities.
+- **Registration intelligence:** Review attendance, waitlists, and check-ins from aggregate data.
+
+[Quick start](#quick-start) · [Tools](#tools) · [Safety](#confirmation-and-safety) ·
+[Examples](#example-prompts) · [Development](#development)
+
+---
+
+## Quick start
+
+### Prerequisites
+
+1. [Node.js](https://nodejs.org/) 20 or newer.
+2. A Luma calendar with API access.
+3. A calendar API key from the
+   [Luma API settings](https://docs.luma.com/reference/getting-started-with-your-api).
+4. An MCP-compatible client such as
+   [OpenAI Codex](https://developers.openai.com/codex/) or
+   [Cursor](https://www.cursor.com/).
+
+Your API key controls which calendar the server can access. Treat it like a
+password: do not commit it, paste it into issues, or include it in screenshots.
+
+### Install in OpenAI Codex
+
+Export your Luma API key in the environment that starts Codex:
+
+```bash
+export LUMA_API_KEY="your-luma-api-key"
+```
+
+Add the following to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.luma-events]
+command = "npx"
+args = [
+  "-y",
+  "--package",
+  "@blackie360/luma-events-mcp@latest",
+  "luma-events-mcp"
+]
+env_vars = ["LUMA_API_KEY"]
+```
+
+Restart Codex or open a new chat, then ask:
+
+> Verify my Luma connection.
+
+Codex supports `env_vars` for forwarding selected local environment variables
+to a stdio MCP server. This keeps the key out of the tracked project and the
+MCP definition.
+
+### Install in Cursor
+
+Add this server to your Cursor MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "luma-events": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "--package",
+        "@blackie360/luma-events-mcp@latest",
+        "luma-events-mcp"
+      ],
+      "env": {
+        "LUMA_API_KEY": "your-luma-api-key"
+      }
+    }
+  }
+}
+```
+
+Prefer Cursor's secret or environment-variable support when available instead
+of storing the key directly in a configuration file. Restart Cursor, open
+**Cursor Settings → Tools & MCP**, enable `luma-events`, and verify the
+connection.
+
+### Install in another MCP client
+
+Any client that supports local stdio MCP servers can launch the npm package:
+
+```json
+{
+  "mcpServers": {
+    "luma-events": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "--package",
+        "@blackie360/luma-events-mcp@latest",
+        "luma-events-mcp"
+      ],
+      "env": {
+        "LUMA_API_KEY": "your-luma-api-key"
+      }
+    }
+  }
+}
+```
+
+Configuration syntax and secret handling vary by client. Consult your client's
+MCP documentation if it uses a different server key or environment format.
+
+### Install globally
+
+```bash
+npm install --global @blackie360/luma-events-mcp
+luma-events-mcp
+```
+
+`luma-events-mcp` is a stdio server. It normally appears idle when run directly
+because an MCP client is expected to communicate with it over standard input
+and output.
+
+---
+
+## Confirmation and safety
+
+Every write tool requires `confirmed=true`. Until then, the server performs no
+write and either returns a structured preview or asks the client to show the
+proposed arguments.
+
+Higher-impact operations provide additional safeguards:
+
+- Event deletion previews the exact event, guest impact, and paid-event refund choice.
+- Guest status changes require a refund decision when captured paid tickets are involved.
+- Guest ticket previews explain that additions are complimentary and removals do not refund.
+- Ticket-type deletion verifies that the ticket belongs to the selected event.
+- Host removal matches the requested email case-insensitively before proceeding.
+- Cross-event audience previews return counts rather than guest identities.
+- Waitlist approvals are limited to resumable batches of 90 guests.
+
+> [!CAUTION]
+> Confirmation makes the intended action explicit; it does not make a
+> destructive action reversible. Review the event, target, notification, and
+> refund details before approving a write.
+
+---
+
+## Tools
+
+The server exposes 23 tools. Read tools are marked read-only in MCP discovery;
+destructive and potentially non-idempotent operations include matching MCP
+annotations so clients can apply their own approval policies.
+
+### Connection and events
+
+| Tool | What it does | Write behavior |
+| --- | --- | --- |
+| `verify_connection` | Checks the API key and returns the authenticated Luma user. | Read-only |
+| `list_events` | Lists approved or pending events with date filters and pagination. | Read-only |
+| `get_event` | Returns complete details for one event. | Read-only |
+| `create_event` | Creates an event with registration, location, visibility, and capacity settings. | Confirmation required |
+| `update_event` | Updates selected event fields. | Confirmation required |
+| `delete_event` | Uses Luma's two-step cancellation flow and reports guest/refund impact. | Preview, confirmation, destructive |
+
+### Guests and registrations
+
+| Tool | What it does | Write behavior |
+| --- | --- | --- |
+| `get_guest` | Finds one guest by ID, ticket key, guest key, or email. | Read-only; returns personal data |
+| `list_guests` | Lists event guests, optionally filtered by approval status. | Read-only; returns personal data |
+| `registration_summary` | Counts registration states and check-ins without returning identities. | Read-only |
+| `add_guests` | Registers guests as approved, pending approval, or waitlisted. | Confirmation required |
+| `update_guest_status` | Moves one guest between approved, declined, pending, and waitlist states. | Preview, confirmation, refund-aware |
+| `update_guest_tickets` | Adds complimentary tickets or invalidates existing tickets. | Preview, confirmation, non-idempotent |
+| `approve_waitlisted_guests` | Approves up to 90 waitlisted guests per resumable run. | Confirmation required |
+
+### Ticket types
+
+| Tool | What it does | Write behavior |
+| --- | --- | --- |
+| `list_ticket_types` | Lists visible ticket types and optionally includes hidden ones. | Read-only |
+| `get_ticket_type` | Returns one ticket type by ID. | Read-only |
+| `create_ticket_type` | Creates free, paid, or flexible-price ticket types. | Confirmation required |
+| `update_ticket_type` | Changes pricing, availability, approval, visibility, or sale settings. | Confirmation required |
+| `delete_ticket_type` | Verifies event ownership and previews the exact ticket type. | Preview, confirmation, destructive |
+
+Luma may reject ticket-type deletion when tickets have already been sold or
+when the target is the event's last visible ticket type.
+
+### Hosts
+
+| Tool | What it does | Write behavior |
+| --- | --- | --- |
+| `add_host` | Adds a visible or hidden manager, check-in host, or no-access host. | Confirmation required |
+| `update_host` | Changes a host's access level or public visibility. | Confirmation required |
+| `remove_host` | Resolves and previews the host before removal. | Preview, confirmation, destructive |
+
+Luma can omit hidden hosts from an event response. When that happens, the
+removal preview clearly marks the requested email as unverified.
+
+### Invitations and audiences
+
+| Tool | What it does | Write behavior |
+| --- | --- | --- |
+| `send_invites` | Sends soft invitations in batches of 100 by email and, when linked, SMS. | Confirmation required |
+| `invite_guests_from_event` | Builds a deduplicated audience from earlier events and removes existing target-event guests. | Identity-free preview, confirmation required |
+
+---
+
+## Example prompts
+
+### Discover and understand
+
+- "Verify my Luma connection."
+- "Show my upcoming Luma events."
+- "Summarize registrations for my next event."
+- "List every ticket type for this event, including hidden tickets."
+
+### Manage events and guests
+
+- "Prepare an event for Friday at 5 PM, but do not create it until I confirm."
+- "Add these guests as pending approval after showing me the proposed change."
+- "Preview approving this guest and tell me whether a refund choice is involved."
+- "Preview replacing this guest's workshop ticket without sending email."
+
+### Grow and operate
+
+- "Show how many guests are waitlisted, then approve a safe batch after I confirm."
+- "Preview guests from my last event who are not already on my next event."
+- "Invite that previewed audience after I confirm."
+- "Add this person as hidden check-in staff after I confirm."
+- "Preview deleting this event, including guest and refund impact."
+
+---
 
 ## Screenshots
 
@@ -50,202 +272,39 @@ Guest identities have been redacted from this public example.
 
 ![Aggregate guest attendance insights with guest names redacted](docs/images/guest-insights-redacted.png)
 
-## Available tools
+---
 
-### `verify_connection`
+## Configuration
 
-Checks the API key and returns the authenticated Luma user.
+| Variable | Required | Default | Description |
+| --- | --- | --- | --- |
+| `LUMA_API_KEY` | Yes | — | Calendar-scoped API key used to authenticate with Luma. |
+| `LUMA_API_BASE` | No | `https://public-api.luma.com` | Alternate API base for tests or compatible proxies. |
 
-### `list_events`
-
-Lists calendar events. Supports date ranges, approval status, pagination limits,
-and pagination cursors.
-
-### `get_event`
-
-Returns complete details for a single event.
-
-### `get_guest`
-
-Returns one guest by guest ID, ticket key, guest key, or email, including
-ticket-order details. This response contains personal information.
-
-### `update_guest_status`
-
-Previews and updates one guest to `approved`, `declined`, `pending_approval`, or
-`waitlist`. The preview returns only the identity and status information needed
-for confirmation. Moving an approved guest with captured paid tickets to a
-non-approved state requires an explicit refund choice.
-
-### `update_guest_tickets`
-
-Previews and changes one guest's tickets. Added tickets are complimentary
-administrative tickets even when the ticket type is normally paid, may exceed
-capacity, and are not idempotent. Removed tickets are invalidated without a
-refund, and at least one valid ticket must remain.
-
-### `list_ticket_types`
-
-Lists an event's ticket types and can optionally include hidden ticket types.
-
-### `get_ticket_type`
-
-Returns one ticket type by ticket-type ID.
-
-### `create_ticket_type`
-
-Creates a free, paid, or flexible-price ticket type after explicit confirmation.
-Supports approval and visibility settings, descriptions, sale dates, capacity,
-currency, fixed price, and minimum flexible price.
-
-### `update_ticket_type`
-
-Updates selected ticket-type settings after explicit confirmation. Nullable
-fields can be used to clear descriptions, dates, capacity, or pricing values.
-
-### `delete_ticket_type`
-
-Verifies that a ticket type belongs to the selected event and returns an exact
-preview before deletion. Luma refuses deletion when tickets have been sold or
-when the ticket type is the event's last visible option.
-
-### `add_host`
-
-Adds a visible or hidden event host with `manager`, `check-in`, or `none` access
-after explicit confirmation.
-
-### `update_host`
-
-Updates an event host's access level or public visibility after explicit
-confirmation. Luma does not allow changing the event creator's access.
-
-### `remove_host`
-
-Resolves the event and host email case-insensitively and returns a preview before
-removing the host. Visible hosts include their returned Luma identity. Luma may
-omit hidden hosts from the event response, so those previews clearly identify
-the requested email as unverified. A removed host can be added again later.
-
-### `create_event`
-
-Creates an event after explicit confirmation. Supports event names, dates,
-timezones, descriptions, capacity, online meeting URLs, physical locations,
-visibility, registration, waitlist, and guest-list settings.
-
-### `update_event`
-
-Updates selected event fields after explicit confirmation.
-
-### `delete_event`
-
-Previews and permanently deletes an event through Luma's two-step cancellation
-flow. The preview reports the exact event, approved guest count, and whether the
-event is paid. Confirmed deletion is irreversible, notifies all guests, and
-requires an explicit refund choice for paid events.
-
-### `add_guests`
-
-Registers guests directly with an approved, pending-approval, or waitlist
-status. Supports names, registration answers, ticket types, and optional Luma
-email notifications. Requires explicit confirmation.
-
-### `send_invites`
-
-Sends soft invitations in batches of 100. Luma emails each recipient and may
-also send SMS when a phone number is linked to the recipient's Luma account.
-Requires explicit confirmation and returns only aggregate delivery counts.
-
-### `invite_guests_from_event`
-
-Builds an audience from selected source-event statuses, normalizes and
-deduplicates email addresses, removes guests already associated with the target
-event, and sends soft invitations in batches. Call with `confirmed=false` first
-to receive an identity-free preview, then with `confirmed=true` after approval.
-
-### `approve_waitlisted_guests`
-
-Approves up to 90 currently waitlisted guests after explicit confirmation. It
-can send Luma's approval email with an optional message, reports partial
-failures without returning guest names or email addresses, and returns
-`resume_required=true` when another safe run is needed.
-
-### `list_guests`
-
-Lists event guests, optionally filtered by approval status. This tool may return
-personal information and should only be used for legitimate event operations.
-
-### `registration_summary`
-
-Returns totals by registration state and the number of checked-in guests without
-exposing names or email addresses.
-
-## Requirements
-
-- Node.js 20 or newer
-- A Luma calendar with API access
-- A Luma API key
-- An MCP-compatible client such as Cursor or Codex
-
-[pnpm](https://pnpm.io/) is required only when building from source.
-
-## Getting a Luma API key
-
-Generate a calendar API key by following the
-[Luma API documentation](https://docs.luma.com/reference/getting-started-with-your-api).
-The key determines which calendar the server can access.
-
-Treat the key as a secret. Never commit it, include it in screenshots, or place
-it directly in a tracked MCP configuration file.
-
-## Installation
-
-### Run the npm package
-
-After the package is published, an MCP client can launch it directly with
-`npx`; cloning and building are not required:
-
-```json
-{
-  "mcpServers": {
-    "luma-events": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "--package",
-        "@blackie360/luma-events-mcp@0.5.2",
-        "luma-events-mcp"
-      ],
-      "env": {
-        "LUMA_API_KEY": "your-luma-api-key"
-      }
-    }
-  }
-}
-```
-
-Prefer your client's secret or environment-variable support instead of placing
-the API key directly in a tracked configuration file.
-
-You can also install the executable globally:
+The server does not load `.env` files automatically. For source development,
+copy the included template and load it into your shell:
 
 ```bash
-npm install --global @blackie360/luma-events-mcp
-luma-events-mcp
+cp .env.example .env
+set -a
+source .env
+set +a
 ```
 
-The command is a stdio MCP server, so it normally appears idle when run outside
-an MCP client.
+Never commit `.env` or `LUMA_API_KEY`.
 
-### Build from source
+---
 
-Clone the repository and enter the project directory:
+## Build from source
+
+Clone the repository:
 
 ```bash
 git clone https://github.com/Blackie360/luma-events-mcp.git
 cd luma-events-mcp
 ```
 
-Install dependencies and build the server:
+Install dependencies and build:
 
 ```bash
 corepack enable
@@ -253,211 +312,81 @@ pnpm install
 pnpm build
 ```
 
-The production entry point is generated at `dist/index.js`.
-
-## Configuration
-
-The server requires the following environment variable:
+Start the local stdio server:
 
 ```bash
-export LUMA_API_KEY="your-luma-api-key"
-```
-
-An optional API base URL can be supplied for testing or compatible proxies:
-
-```bash
-export LUMA_API_BASE="https://public-api.luma.com"
-```
-
-The server does not load `.env` files automatically. For local development, you
-can create an ignored `.env` file and load it into your shell before running the
-server:
-
-```bash
-set -a
-source .env
-set +a
-```
-
-Example `.env`:
-
-```dotenv
-LUMA_API_KEY=your-luma-api-key
-```
-
-## Running locally
-
-Build and start the stdio MCP server:
-
-```bash
-pnpm build
 pnpm start
 ```
 
-The process communicates over standard input and output, so it normally appears
-idle when started directly. An MCP client is expected to launch and communicate
-with it.
+The generated production entry point is `dist/index.js`. The repository also
+includes project-local Cursor configuration, MCP plugin configuration, and
+Codex/Cursor plugin manifests.
 
-## Connecting an MCP client
-
-The recommended npm configuration is shown in
-[Installation](#run-the-npm-package). To use a local source build instead,
-configure your client to run the built server with Node.js. Use an absolute
-path unless the client supports a working-directory option.
-
-```json
-{
-  "mcpServers": {
-    "luma-events": {
-      "command": "node",
-      "args": ["/absolute/path/to/plugins/luma-events/dist/index.js"]
-    }
-  }
-}
-```
-
-Make `LUMA_API_KEY` available to the environment that launches your MCP client,
-or use the client's secure secret/environment-variable configuration. Restart
-the client after updating its environment or MCP configuration.
-
-This repository also includes:
-
-- `.mcp.json` for clients that support plugin-provided MCP configuration.
-- `.codex-plugin/plugin.json` with Codex plugin metadata.
-
-After connecting, ask the client to run `verify_connection` before using the
-other tools.
-
-### Cursor
-
-The included `.cursor/mcp.json` lets Cursor start the server automatically from
-this workspace. Copy `.env.example` to `.env`, add your Luma API key, build the
-server once, and restart Cursor:
-
-```bash
-cp .env.example .env
-pnpm install
-pnpm build
-```
-
-You do not need to run `pnpm start`. Cursor launches `dist/index.js` when it
-connects to the MCP server. Rebuild only after changing the source code.
-
-Open **Cursor Settings → Tools & MCP**, enable `luma-events`, then ask Cursor to
-verify the Luma connection.
-
-For installation as a Cursor plugin, this repository also includes
-`.cursor-plugin/plugin.json` and the root `mcp.json`. Cursor requests the
-`LUMA_API_KEY` plugin variable during configuration and reuses it on subsequent
-starts.
-
-## Example prompts
-
-- "Verify my Luma connection."
-- "Show my upcoming Luma events."
-- "Show the details for the next event."
-- "Summarize registrations for my next event."
-- "Show how many guests are waitlisted, then approve a safe batch after I confirm."
-- "Preview the waitlisted guests from the last event who are not already on my next event."
-- "Invite that previewed audience to the next event after I confirm."
-- "Add these guests to the event as pending approval after I confirm."
-- "Preview approving this guest and show whether a refund choice is involved."
-- "Preview replacing this guest's workshop ticket without sending email."
-- "List every ticket type for this event, including hidden tickets."
-- "Create a hidden free speaker ticket after I confirm."
-- "Add this person as hidden check-in staff after I confirm."
-- "Preview removing this host from the event."
-- "Prepare an event for Friday at 5 PM, but do not create it until I confirm."
-- "Close registration for this event after showing me the proposed change."
-- "Preview deleting this event, including the guest and refund impact."
+---
 
 ## Development
 
-Run the TypeScript compiler checks:
-
 ```bash
+# Type-check the project
 pnpm check
-```
 
-Build the project:
-
-```bash
-pnpm build
-```
-
-Run the test suite:
-
-```bash
+# Build and run the complete test suite
 pnpm test
-```
 
-Create the same tarball that would be uploaded to npm:
-
-```bash
+# Inspect the package that would be uploaded to npm
 pnpm pack
 ```
 
-The `prepack` check runs the compiler and full test suite before creating the
-archive. The published package contains the executable bundle, declaration
-file, documentation, license, and Codex/Cursor plugin manifests; development
-source, tests, source maps, screenshots, and local secrets are excluded.
+`prepack` runs the compiler and full test suite before creating the archive.
+Tests cover confirmation guards, event deletion, API errors, pagination,
+resumable waitlist approval, invitation batching, audience deduplication,
+refund rules, ticket invariants, host matching, privacy-conscious previews, and
+MCP discovery.
 
-To publish a release after reviewing the tarball, update every synchronized
-version, commit and push the change, then push a matching version tag:
+### Project structure
+
+```text
+.
+├── .codex-plugin/plugin.json   # Codex plugin metadata
+├── .cursor/mcp.json            # Project-local Cursor configuration
+├── .cursor-plugin/plugin.json  # Cursor plugin metadata
+├── .github/workflows/          # Trusted npm publishing workflow
+├── .mcp.json                   # Plugin MCP server configuration
+├── docs/images/                # Redacted README screenshots
+├── src/index.ts                # Server and Luma API integration
+├── src/index.test.ts           # Unit tests
+├── src/mcp.integration.test.ts # MCP integration tests
+├── package.json
+└── tsconfig.json
+```
+
+### Release process
+
+Release tags publish through npm trusted publishing and generate a GitHub
+Release:
 
 ```bash
 git tag v0.5.3
 git push origin v0.5.3
 ```
 
-The GitHub Actions release workflow verifies that the tag matches
-`package.json`, publishes the public npm package through npm trusted publishing,
-and creates a GitHub Release with generated release notes. Never reuse an npm
-version or move a published version tag.
+The tag must match the version in `package.json`. Never reuse a published npm
+version or move an existing release tag.
 
-The test suite covers write confirmation, two-step event deletion, API error
-reporting, pagination, resumable waitlist approvals, invite batching, audience
-deduplication, guest status refunds, guest-ticket invariants, ticket-type
-ownership and deletion, host matching, privacy-conscious previews, and MCP tool
-discovery and execution.
-
-## Project structure
-
-```text
-.
-├── .codex-plugin/plugin.json  # Codex plugin metadata
-├── .cursor/mcp.json           # Project-local Cursor MCP configuration
-├── .cursor-plugin/plugin.json # Cursor plugin metadata and secret variables
-├── .env.example               # Local environment template
-├── .mcp.json                  # Plugin MCP server configuration
-├── mcp.json                   # Cursor plugin MCP configuration
-├── src/index.ts               # MCP server and Luma API integration
-├── src/index.test.ts          # Node.js tests
-├── src/mcp.integration.test.ts # MCP integration tests
-├── package.json               # Scripts and dependencies
-└── tsconfig.json              # TypeScript configuration
-```
+---
 
 ## Security and privacy
 
-- Never commit `LUMA_API_KEY` or any `.env` file.
-- Always preview `delete_event` and confirm the exact event and refund choice;
-  deletion is irreversible and Luma notifies every guest.
-- Review requested changes before confirming write operations.
-- Review event, recipient count, status, ticket, message, and notification
-  choices before confirming guest writes.
-- Preview `update_guest_status` and explicitly choose whether to refund a
-  captured paid ticket before moving that guest out of approved status.
-- Preview `update_guest_tickets`; additions are complimentary and may bypass
-  capacity, removals do not refund, and disabling email does not suppress
-  Luma's in-app notification.
-- Preview ticket-type and host removals and confirm the exact event and target.
-- Preview `invite_guests_from_event` before confirming it; previews return counts,
-  not guest identities.
-- Use `list_guests` and `get_guest` only when guest-level data is necessary.
-- Prefer `registration_summary` when only aggregate counts are required.
-- Keep dependencies updated and report vulnerabilities privately to the
-  maintainers.
+- Use a calendar-scoped API key with only the access the integration needs.
+- Keep API keys, guest information, and registration answers out of commits and issues.
+- Prefer `registration_summary` when aggregate counts are enough.
+- Use `list_guests` and `get_guest` only for legitimate event operations.
+- Review every preview before confirming guest, ticket, host, invitation, or deletion writes.
+- Remember that disabling email does not necessarily suppress Luma's in-app notification.
+- Rotate a key immediately if it is exposed.
+
+To report a vulnerability, use a private security report rather than a public
+issue whenever possible.
 
 ## Contributing
 
@@ -465,18 +394,28 @@ Contributions are welcome:
 
 1. Fork the repository.
 2. Create a focused branch.
-3. Add or update tests for your change.
+3. Add or update tests for the change.
 4. Run `pnpm check` and `pnpm test`.
-5. Open a pull request explaining the change and its motivation.
+5. Open a pull request that explains the change and its motivation.
 
-Please avoid including API keys, guest information, or other private event data
-in issues, tests, commits, or pull requests.
+Do not include real API keys, guest identities, or private event data in tests,
+commits, issues, or pull requests.
+
+## Support
+
+- Report bugs and request features through
+  [GitHub Issues](https://github.com/Blackie360/luma-events-mcp/issues).
+- Review published changes in
+  [GitHub Releases](https://github.com/Blackie360/luma-events-mcp/releases).
+- Install the latest package from
+  [npm](https://www.npmjs.com/package/@blackie360/luma-events-mcp).
 
 ## API
 
 The server uses Luma's official API at `https://public-api.luma.com`. Request
-shapes are based on Luma's [OpenAPI specification](https://public-api.luma.com/openapi.json).
-API keys are scoped to the calendar and permissions configured in Luma.
+shapes are based on Luma's
+[OpenAPI specification](https://public-api.luma.com/openapi.json). API keys are
+scoped to the calendar and permissions configured in Luma.
 
 ## License
 
