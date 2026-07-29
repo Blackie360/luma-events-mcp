@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   approveWaitlistedGuests,
   deleteTicketType,
   deleteEvent,
+  isMainModule,
   inviteGuestsFromEvent,
   luma,
   removeHost,
@@ -15,6 +20,19 @@ import {
   updateGuestTickets,
   type LumaRequest
 } from "./index.js";
+
+test("isMainModule resolves npm bin symlinks", () => {
+  const directory = mkdtempSync(join(tmpdir(), "luma-events-main-module-"));
+  const modulePath = fileURLToPath(new URL("./index.js", import.meta.url));
+  const executablePath = join(directory, "luma-events-mcp");
+  symlinkSync(modulePath, executablePath);
+
+  try {
+    assert.equal(isMainModule(executablePath, pathToFileURL(modulePath).href), true);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("requireConfirmation blocks unconfirmed writes", () => {
   assert.throws(

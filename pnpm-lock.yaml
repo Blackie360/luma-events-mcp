@@ -7,14 +7,10 @@ settings:
 importers:
 
   .:
-    dependencies:
+    devDependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.17.0
         version: 1.29.0(zod@3.25.76)
-      zod:
-        specifier: ^3.25.0
-        version: 3.25.76
-    devDependencies:
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.3
@@ -24,6 +20,9 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
 
 packages:
 

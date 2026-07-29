@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -21100,7 +21101,8 @@ var StdioServerTransport = class {
 };
 
 // src/index.ts
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 var DEFAULT_API_BASE = "https://public-api.luma.com";
 var MAX_APPROVALS_PER_RUN = 90;
 var INVITE_BATCH_SIZE = 100;
@@ -21185,7 +21187,7 @@ function requireConfirmation(confirmed, action) {
   if (!confirmed) throw new Error(`Confirmation required before ${action}. Review the proposed values, ask the user to confirm, then retry with confirmed=true.`);
 }
 function createServer() {
-  const server = new McpServer({ name: "luma-events", version: "0.5.0" });
+  const server = new McpServer({ name: "luma-events", version: "0.5.1" });
   server.registerTool("verify_connection", {
     title: "Verify Luma connection",
     description: "Verify the configured Luma API key and return the authenticated user.",
@@ -22068,7 +22070,15 @@ async function summarizeRegistrations(event_id, request = luma) {
   } while (cursor);
   return { event_id, ...counts };
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+function isMainModule(entryPath = process.argv[1], moduleUrl = import.meta.url) {
+  if (!entryPath) return false;
+  try {
+    return realpathSync(entryPath) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+if (isMainModule()) {
   const transport = new StdioServerTransport();
   await createServer().connect(transport);
 }
@@ -22078,6 +22088,7 @@ export {
   deleteEvent,
   deleteTicketType,
   inviteGuestsFromEvent,
+  isMainModule,
   luma,
   removeHost,
   requireConfirmation,

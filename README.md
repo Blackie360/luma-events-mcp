@@ -182,10 +182,11 @@ exposing names or email addresses.
 ## Requirements
 
 - Node.js 20 or newer
-- [pnpm](https://pnpm.io/)
 - A Luma calendar with API access
 - A Luma API key
 - An MCP-compatible client such as Cursor or Codex
+
+[pnpm](https://pnpm.io/) is required only when building from source.
 
 ## Getting a Luma API key
 
@@ -198,7 +199,46 @@ it directly in a tracked MCP configuration file.
 
 ## Installation
 
-Clone the repository and enter this plugin directory:
+### Run the npm package
+
+After the package is published, an MCP client can launch it directly with
+`npx`; cloning and building are not required:
+
+```json
+{
+  "mcpServers": {
+    "luma-events": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "--package",
+        "@blackie360/luma-events-mcp@0.5.1",
+        "luma-events-mcp"
+      ],
+      "env": {
+        "LUMA_API_KEY": "your-luma-api-key"
+      }
+    }
+  }
+}
+```
+
+Prefer your client's secret or environment-variable support instead of placing
+the API key directly in a tracked configuration file.
+
+You can also install the executable globally:
+
+```bash
+npm install --global @blackie360/luma-events-mcp
+luma-events-mcp
+```
+
+The command is a stdio MCP server, so it normally appears idle when run outside
+an MCP client.
+
+### Build from source
+
+Clone the repository and enter the project directory:
 
 ```bash
 git clone https://github.com/Blackie360/luma-events-mcp.git
@@ -260,8 +300,10 @@ with it.
 
 ## Connecting an MCP client
 
-Configure your client to run the built server with Node.js. Use absolute paths
-unless the client supports a working-directory option.
+The recommended npm configuration is shown in
+[Installation](#run-the-npm-package). To use a local source build instead,
+configure your client to run the built server with Node.js. Use an absolute
+path unless the client supports a working-directory option.
 
 ```json
 {
@@ -347,6 +389,24 @@ Run the test suite:
 
 ```bash
 pnpm test
+```
+
+Create the same tarball that would be uploaded to npm:
+
+```bash
+pnpm pack
+```
+
+The `prepack` check runs the compiler and full test suite before creating the
+archive. The published package contains the executable bundle, declaration
+file, documentation, license, and Codex/Cursor plugin manifests; development
+source, tests, source maps, screenshots, and local secrets are excluded.
+
+To publish a release after reviewing the tarball:
+
+```bash
+npm login
+npm publish
 ```
 
 The test suite covers write confirmation, two-step event deletion, API error

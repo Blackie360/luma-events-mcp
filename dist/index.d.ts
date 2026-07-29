@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 type Json = null | boolean | number | string | Json[] | {
     [key: string]: Json;
@@ -68,4 +69,5 @@ export declare function inviteGuestsFromEvent(input: {
     confirmed?: boolean;
 }, request?: LumaRequest): Promise<Json>;
 export declare function summarizeRegistrations(event_id: string, request?: LumaRequest): Promise<Json>;
+export declare function isMainModule(entryPath?: string, moduleUrl?: string): boolean;
 export {};

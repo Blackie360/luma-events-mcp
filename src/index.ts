@@ -1,6 +1,9 @@
+#!/usr/bin/env node
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { pathToFileURL } from "node:url";
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
 const DEFAULT_API_BASE = "https://public-api.luma.com";
@@ -103,7 +106,7 @@ export function requireConfirmation(confirmed: boolean, action: string): void {
 }
 
 export function createServer(): McpServer {
-const server = new McpServer({ name: "luma-events", version: "0.5.0" });
+  const server = new McpServer({ name: "luma-events", version: "0.5.1" });
 
 server.registerTool("verify_connection", {
   title: "Verify Luma connection",
@@ -1149,7 +1152,16 @@ export async function summarizeRegistrations(event_id: string, request: LumaRequ
   return { event_id, ...counts };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+export function isMainModule(entryPath = process.argv[1], moduleUrl = import.meta.url): boolean {
+  if (!entryPath) return false;
+  try {
+    return realpathSync(entryPath) === realpathSync(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isMainModule()) {
   const transport = new StdioServerTransport();
   await createServer().connect(transport);
 }
