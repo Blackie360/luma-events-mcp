@@ -19,7 +19,7 @@ important changes.
 > endorsed by Luma.
 
 > [!WARNING]
-> Version 0.6.0 is a breaking protocol upgrade. It supports only MCP
+> Version 0.6.0 and newer support only MCP
 > `2026-07-28` through the MCP TypeScript SDK v2. Clients that use the legacy
 > `initialize` flow or a 2025 protocol revision are rejected instead of being
 > silently downgraded.
@@ -53,6 +53,55 @@ important changes.
 
 Your API key controls which calendar the server can access. Treat it like a
 password: do not commit it, paste it into issues, or include it in screenshots.
+
+### Interactive installation
+
+Run the setup wizard without cloning the repository:
+
+```bash
+npx -y @blackie360/luma-events-mcp@latest setup
+```
+
+The wizard:
+
+1. Detects installed Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI clients.
+2. Lets you select one, several, or all detected clients.
+3. Prompts you to paste your Luma calendar API key with masked terminal input.
+4. Verifies the key with Luma before changing anything.
+5. Shows the exact installation plan and waits for final confirmation.
+6. Configures each selected client and reports individual successes or failures.
+
+The API key is stored once and is never included in client command arguments or
+MCP configuration. POSIX systems apply owner-only file permissions; Windows
+stores the file inside the current user's application-data directory:
+
+- Linux and macOS: `~/.config/luma-events-mcp/credentials.json`
+- Windows: `%APPDATA%\luma-events-mcp\credentials.json`
+
+Existing Cursor configuration is merged rather than replaced, and the original
+file is backed up first. Preview detection without requesting a key or changing
+configuration with:
+
+```bash
+npx -y @blackie360/luma-events-mcp@latest setup --dry-run
+```
+
+| Client | Setup adapter |
+| --- | --- |
+| OpenAI Codex | `codex mcp add` |
+| Cursor | Safe merge into the global `mcp.json` |
+| Claude Code | `claude mcp add --scope user` |
+| Gemini CLI | `gemini mcp add --scope user` |
+| Grok CLI | `grok mcp add` |
+
+Restart the configured clients after setup, then ask:
+
+> Verify my Luma connection.
+
+### Manual installation
+
+Use the following client-specific configuration when you do not want to use
+the interactive wizard.
 
 ### Install in OpenAI Codex
 
@@ -143,12 +192,12 @@ MCP documentation if it uses a different server key or environment format.
 
 ```bash
 npm install --global @blackie360/luma-events-mcp
-luma-events-mcp
+luma-events-mcp setup
 ```
 
-`luma-events-mcp` is a stdio server. It normally appears idle when run directly
-because an MCP client is expected to communicate with it over standard input
-and output.
+Running `luma-events-mcp` without a subcommand starts the stdio server. It
+normally appears idle when run directly because an MCP client is expected to
+communicate with it over standard input and output.
 
 ---
 
@@ -285,8 +334,10 @@ Guest identities have been redacted from this public example.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `LUMA_API_KEY` | Yes | — | Calendar-scoped API key used to authenticate with Luma. |
+| `LUMA_API_KEY` | No after setup | Stored credential | Calendar-scoped API key. An environment value overrides the stored key. |
 | `LUMA_API_BASE` | No | `https://public-api.luma.com` | Alternate API base for tests or compatible proxies. |
+| `LUMA_API_KEY_FILE` | No | Platform credential path | Override the stored credential file location. |
+| `LUMA_EVENTS_CONFIG_DIR` | No | Platform config directory | Override the setup directory containing `credentials.json`. |
 
 The server does not load `.env` files automatically. For source development,
 copy the included template and load it into your shell:
@@ -350,7 +401,9 @@ resumable waitlist approval, invitation batching, audience deduplication,
 refund rules, ticket invariants, host matching, privacy-conscious previews, and
 modern MCP discovery. The integration suite launches the packaged stdio server,
 pins negotiation to MCP `2026-07-28`, verifies all 23 tools, and confirms that a
-legacy `initialize` request is rejected.
+legacy `initialize` request is rejected. Setup tests cover client detection,
+selection, masked-secret ordering, API-key verification, consent, restrictive
+file permissions, Cursor configuration preservation, and secret non-disclosure.
 
 ### Project structure
 
@@ -365,6 +418,8 @@ legacy `initialize` request is rejected.
 ├── src/index.ts                # Server and Luma API integration
 ├── src/index.test.ts           # Unit tests
 ├── src/mcp.integration.test.ts # MCP integration tests
+├── src/setup.ts                # Interactive multi-client setup wizard
+├── src/setup.test.ts           # Setup and credential-safety tests
 ├── package.json
 └── tsconfig.json
 ```
@@ -375,8 +430,8 @@ Release tags publish through npm trusted publishing and generate a GitHub
 Release:
 
 ```bash
-git tag v0.6.0
-git push origin v0.6.0
+git tag v0.7.0
+git push origin v0.7.0
 ```
 
 The tag must match the version in `package.json`. Never reuse a published npm
@@ -387,6 +442,7 @@ version or move an existing release tag.
 ## Security and privacy
 
 - Use a calendar-scoped API key with only the access the integration needs.
+- The setup wizard stores the key once, uses owner-only permissions on POSIX, and keeps it out of client arguments.
 - Keep API keys, guest information, and registration answers out of commits and issues.
 - Prefer `registration_summary` when aggregate counts are enough.
 - Use `list_guests` and `get_guest` only for legitimate event operations.

@@ -133,7 +133,7 @@ test("stdio entry serves MCP 2026-07-28 and rejects legacy initialization", asyn
   });
 
   assert.equal(client.getProtocolEra(), "modern");
-  assert.equal(client.getServerVersion()?.version, "0.6.0");
+  assert.equal(client.getServerVersion()?.version, "0.7.0");
   const listed = await client.listTools(undefined, { cacheMode: "refresh" });
   assert.equal(listed.tools.length, 23);
   assert.equal(listed.cacheScope, "private");

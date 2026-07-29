@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { approveWaitlistedGuests, deleteTicketType, deleteEvent, isMainModule, inviteGuestsFromEvent, luma, removeHost, requireConfirmation, sendInvites, summarizeRegistrations, updateGuestStatus, updateGuestTickets } from "./index.js";
+import { storeApiKey } from "./setup.js";
 test("isMainModule resolves npm bin symlinks", () => {
     const directory = mkdtempSync(join(tmpdir(), "luma-events-main-module-"));
     const modulePath = fileURLToPath(new URL("./index.js", import.meta.url));
@@ -25,6 +26,31 @@ test("luma includes API errors in a useful exception", async (t) => {
     t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ message: "invalid request" }), { status: 400, headers: { "content-type": "application/json" } }));
     process.env.LUMA_API_KEY = "test-key";
     await assert.rejects(luma("/v1/events/get", { query: { event_id: "evt-test" } }), /Luma API 400:.*invalid request/);
+});
+test("luma uses the credential stored by interactive setup when the environment key is absent", async (t) => {
+    const directory = mkdtempSync(join(tmpdir(), "luma-events-stored-key-"));
+    const path = join(directory, "credentials.json");
+    await storeApiKey("stored-calendar-key", path);
+    const previousKey = process.env.LUMA_API_KEY;
+    const previousFile = process.env.LUMA_API_KEY_FILE;
+    delete process.env.LUMA_API_KEY;
+    process.env.LUMA_API_KEY_FILE = path;
+    t.after(() => {
+        if (previousKey === undefined)
+            delete process.env.LUMA_API_KEY;
+        else
+            process.env.LUMA_API_KEY = previousKey;
+        if (previousFile === undefined)
+            delete process.env.LUMA_API_KEY_FILE;
+        else
+            process.env.LUMA_API_KEY_FILE = previousFile;
+        rmSync(directory, { recursive: true, force: true });
+    });
+    t.mock.method(globalThis, "fetch", async (_input, init) => {
+        assert.equal(new Headers(init?.headers).get("x-luma-api-key"), "stored-calendar-key");
+        return Response.json({ id: "user-test" });
+    });
+    assert.deepEqual(await luma("/v1/users/get-self"), { id: "user-test" });
 });
 test("event deletion previews impact without canceling", async () => {
     const requests = [];

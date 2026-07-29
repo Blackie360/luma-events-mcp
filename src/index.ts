@@ -6,6 +6,8 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 
+import { readStoredApiKey, runInteractiveSetup, setupHelp } from "./setup.js";
+
 const DEFAULT_API_BASE = "https://public-api.luma.com";
 const MAX_APPROVALS_PER_RUN = 90;
 const INVITE_BATCH_SIZE = 100;
@@ -57,9 +59,9 @@ const ticketTypeMutableFields = {
 };
 
 function apiKey(): string {
-  const value = process.env.LUMA_API_KEY?.trim();
+  const value = process.env.LUMA_API_KEY?.trim() || readStoredApiKey();
   if (!value) {
-    throw new Error("LUMA_API_KEY is not configured. Generate a calendar API key in Luma and expose it to the plugin environment.");
+    throw new Error("LUMA_API_KEY is not configured. Run `luma-events-mcp setup` or expose a calendar API key to the plugin environment.");
   }
   return value;
 }
@@ -107,7 +109,7 @@ export function requireConfirmation(confirmed: boolean, action: string): void {
 
 export function createServer(): McpServer {
   const server = new McpServer(
-    { name: "luma-events", version: "0.6.0" },
+    { name: "luma-events", version: "0.7.0" },
     {
       capabilities: { tools: {} },
       supportedProtocolVersions: ["2026-07-28"]
@@ -1168,5 +1170,22 @@ export function isMainModule(entryPath = process.argv[1], moduleUrl = import.met
 }
 
 if (isMainModule()) {
-  serveStdio(createServer, { legacy: "reject" });
+  const command = process.argv[2];
+  if (command === "setup") {
+    const setupArgs = process.argv.slice(3);
+    if (setupArgs.some((argument) => argument === "--help" || argument === "-h")) {
+      process.stdout.write(`${setupHelp()}\n`);
+    } else {
+      process.exitCode = await runInteractiveSetup(setupArgs);
+    }
+  } else if (command === "--version" || command === "-v") {
+    process.stdout.write("0.7.0\n");
+  } else if (command === "--help" || command === "-h" || command === "help") {
+    process.stdout.write(`${setupHelp()}\n`);
+  } else if (command) {
+    process.stderr.write(`Unknown command: ${command}\n\n${setupHelp()}\n`);
+    process.exitCode = 1;
+  } else {
+    serveStdio(createServer, { legacy: "reject" });
+  }
 }
