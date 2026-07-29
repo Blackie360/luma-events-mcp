@@ -8,6 +8,13 @@ const SERVER_NAME = "luma-events";
 const PACKAGE_SPEC = "@blackie360/luma-events-mcp@latest";
 const SERVER_COMMAND = ["-y", "--package", PACKAGE_SPEC, "luma-events-mcp"];
 const DEFAULT_API_BASE = "https://public-api.luma.com";
+const SETUP_LOGO = [
+    " _     _   _ __  __    _",
+    "| |   | | | |  \\/  |  / \\",
+    "| |   | | | | |\\/| | / _ \\",
+    "| |___| |_| | |  | |/ ___ \\",
+    "|_____|\\___/|_|  |_/_/   \\_\\"
+].join("\n");
 const CLIENT_SPECS = [
     { id: "codex", label: "OpenAI Codex", executables: ["codex"] },
     { id: "cursor", label: "Cursor", executables: ["cursor-agent", "cursor"] },
@@ -356,9 +363,35 @@ export class InteractivePrompter {
         });
     }
 }
+function setupStyle(output, env = process.env) {
+    const enabled = Boolean(output.isTTY) && env.NO_COLOR === undefined && env.TERM !== "dumb";
+    const paint = (code) => (value) => enabled
+        ? `\u001b[${code}m${value}\u001b[0m`
+        : value;
+    return {
+        accent: paint(35),
+        bold: paint(1),
+        dim: paint(2),
+        error: paint(31),
+        success: paint(32)
+    };
+}
+export function setupBanner(color = false) {
+    const accent = color ? (value) => `\u001b[35m${value}\u001b[0m` : (value) => value;
+    const bold = color ? (value) => `\u001b[1m${value}\u001b[0m` : (value) => value;
+    return [
+        "",
+        accent(SETUP_LOGO),
+        bold("          EVENTS MCP"),
+        "  Safe setup for your AI clients",
+        "",
+        ""
+    ].join("\n");
+}
 export async function runInteractiveSetup(args = [], dependencies = {}) {
     const output = dependencies.output ?? process.stdout;
     const prompter = dependencies.prompter ?? new InteractivePrompter(process.stdin, output);
+    const style = setupStyle(output);
     const dryRun = args.includes("--dry-run");
     const unknownOptions = args.filter((argument) => argument !== "--dry-run");
     try {
@@ -366,49 +399,51 @@ export async function runInteractiveSetup(args = [], dependencies = {}) {
             output.write(`Unknown setup option: ${unknownOptions.join(", ")}\n`);
             return 1;
         }
-        output.write("\nLuma Events MCP interactive setup\n\n");
+        output.write(setupBanner(Boolean(output.isTTY) && process.env.NO_COLOR === undefined && process.env.TERM !== "dumb"));
+        output.write(`${style.accent("[1/3]")} ${style.bold("Detect AI clients")}\n\n`);
         const detected = await (dependencies.detect ?? (() => detectClients()))();
         if (detected.length === 0) {
             output.write("No supported AI clients were detected on PATH or in known configuration locations.\n");
             output.write("Supported adapters: Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI.\n");
             return 1;
         }
-        output.write("Detected AI clients:\n");
         detected.forEach((client, index) => {
-            output.write(`  ${index + 1}. ${client.label} (${client.detection})\n`);
+            output.write(`  ${style.accent(`[${index + 1}]`)} ${style.bold(client.label)}\n`);
+            output.write(`      ${style.dim(client.detection)}\n`);
         });
         output.write("\n");
         let selected;
         while (!selected) {
-            const answer = await prompter.ask("Choose clients by number or name, separated by commas [all]: ");
+            const answer = await prompter.ask("Choose clients by number or name, separated by commas [all]\n> ");
             try {
                 selected = parseClientSelection(answer, detected);
             }
             catch (error) {
-                output.write(`${error instanceof Error ? error.message : String(error)}\n`);
+                output.write(`${style.error(error instanceof Error ? error.message : String(error))}\n`);
             }
         }
-        output.write(`\nSelected: ${selected.map((client) => client.label).join(", ")}\n`);
+        output.write(`\n${style.success("[ok]")} Selected: ${selected.map((client) => client.label).join(", ")}\n`);
         if (dryRun) {
             output.write("Dry run complete. No API key was requested and no configuration was changed.\n");
             return 0;
         }
+        output.write(`\n${style.accent("[2/3]")} ${style.bold("Connect to Luma")}\n\n`);
         let apiKey = "";
         let verified = false;
         for (let attempt = 0; attempt < 3 && !verified; attempt += 1) {
-            apiKey = await prompter.ask("Paste your Luma calendar API key: ", true);
+            apiKey = await prompter.ask("Paste your Luma calendar API key (input hidden)\n> ", true);
             if (!apiKey) {
-                output.write("The API key cannot be empty.\n");
+                output.write(`${style.error("The API key cannot be empty.")}\n`);
                 continue;
             }
             output.write("Verifying the API key with Luma...\n");
             try {
                 await (dependencies.verify ?? verifyLumaApiKey)(apiKey);
                 verified = true;
-                output.write("Luma API key verified.\n");
+                output.write(`${style.success("[ok]")} Luma API key verified.\n`);
             }
             catch (error) {
-                output.write(`${error instanceof Error ? error.message : String(error)}\n`);
+                output.write(`${style.error(error instanceof Error ? error.message : String(error))}\n`);
             }
         }
         if (!verified) {
@@ -419,18 +454,19 @@ export async function runInteractiveSetup(args = [], dependencies = {}) {
         const credentialProtection = process.platform === "win32"
             ? "inside the current Windows user profile"
             : "with owner-only permissions";
-        output.write("\nInstallation plan:\n");
+        output.write(`\n${style.accent("[3/3]")} ${style.bold("Review and install")}\n\n`);
+        output.write(`${style.bold("Installation plan")}\n`);
         selected.forEach((client) => output.write(`  - Configure ${client.label}\n`));
         output.write(`  - Store the Luma API key at ${keyPath} ${credentialProtection}\n`);
         output.write("  - Client configuration will contain no API key\n\n");
-        const confirmed = await prompter.ask("Apply this installation plan? [y/N]: ");
+        const confirmed = await prompter.ask("Apply this installation plan? [y/N]\n> ");
         if (!/^y(es)?$/i.test(confirmed)) {
             output.write("Setup cancelled. Nothing was changed.\n");
             return 0;
         }
         await (dependencies.store ?? storeApiKey)(apiKey, keyPath);
         apiKey = "";
-        output.write("Stored the Luma API key securely.\n\n");
+        output.write(`${style.success("[ok]")} Stored the Luma API key securely.\n\n`);
         const results = [];
         for (const client of selected) {
             output.write(`Configuring ${client.label}...\n`);
@@ -445,9 +481,11 @@ export async function runInteractiveSetup(args = [], dependencies = {}) {
                 });
             }
         }
-        output.write("\nSetup results:\n");
+        output.write(`\n${style.bold("Setup results")}\n`);
         for (const result of results) {
-            const marker = result.status === "failed" ? "✗" : "✓";
+            const marker = result.status === "failed"
+                ? style.error("[x]")
+                : style.success("[ok]");
             output.write(`  ${marker} ${result.client}: ${result.detail}\n`);
         }
         output.write("\nRestart the configured AI clients, then ask: \"Verify my Luma connection.\"\n");

@@ -1170,10 +1170,10 @@ export function isMainModule(entryPath = process.argv[1], moduleUrl = import.met
   }
 }
 
-if (isMainModule()) {
-  const command = process.argv[2];
+export async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
+  const [command, ...commandArgs] = args;
   if (command === "setup") {
-    const setupArgs = process.argv.slice(3);
+    const setupArgs = commandArgs;
     if (setupArgs.some((argument) => argument === "--help" || argument === "-h")) {
       process.stdout.write(`${setupHelp()}\n`);
     } else {
@@ -1189,4 +1189,11 @@ if (isMainModule()) {
   } else {
     serveStdio(createServer, { legacy: "reject" });
   }
+}
+
+if (isMainModule()) {
+  void runCli().catch((error: unknown) => {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  });
 }

@@ -70,4 +70,5 @@ export declare function inviteGuestsFromEvent(input: {
 }, request?: LumaRequest): Promise<Json>;
 export declare function summarizeRegistrations(event_id: string, request?: LumaRequest): Promise<Json>;
 export declare function isMainModule(entryPath?: string, moduleUrl?: string): boolean;
+export declare function runCli(args?: string[]): Promise<void>;
 export {};

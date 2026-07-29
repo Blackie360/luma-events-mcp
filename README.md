@@ -62,14 +62,26 @@ Run the setup wizard without cloning the repository:
 npx -y @blackie360/luma-events-mcp@latest setup
 ```
 
+```text
+ _     _   _ __  __    _
+| |   | | | |  \/  |  / \
+| |   | | | | |\/| | / _ \
+| |___| |_| | |  | |/ ___ \
+|_____|\___/|_|  |_/_/   \_\
+          EVENTS MCP
+  Safe setup for your AI clients
+```
+
 The wizard:
 
-1. Detects installed Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI clients.
-2. Lets you select one, several, or all detected clients.
-3. Prompts you to paste your Luma calendar API key with masked terminal input.
-4. Verifies the key with Luma before changing anything.
-5. Shows the exact installation plan and waits for final confirmation.
-6. Configures each selected client and reports individual successes or failures.
+1. Opens with a compact ASCII banner and numbered setup stages, with color only
+   when the terminal supports it.
+2. Detects installed Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI clients.
+3. Lets you select one, several, or all detected clients.
+4. Prompts you to paste your Luma calendar API key with masked terminal input.
+5. Verifies the key with Luma before changing anything.
+6. Shows the exact installation plan and waits for final confirmation.
+7. Configures each selected client and reports individual successes or failures.
 
 The API key is stored once and is never included in client command arguments or
 MCP configuration. POSIX systems apply owner-only file permissions; Windows

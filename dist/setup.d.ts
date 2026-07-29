@@ -53,6 +53,7 @@ export type SetupDependencies = {
     output?: InteractiveOutput;
     credentialsFile?: string;
 };
+export declare function setupBanner(color?: boolean): string;
 export declare function runInteractiveSetup(args?: string[], dependencies?: SetupDependencies): Promise<number>;
 export declare function setupHelp(): string;
 export {};

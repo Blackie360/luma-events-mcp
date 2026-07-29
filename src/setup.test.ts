@@ -14,6 +14,7 @@ import {
   parseClientSelection,
   readStoredApiKey,
   runInteractiveSetup,
+  setupBanner,
   storeApiKey,
   verifyLumaApiKey,
   type DetectedClient,
@@ -232,7 +233,19 @@ test("interactive setup asks for the key after selection and writes only after c
   assert.match(prompts.calls[1]?.question ?? "", /API key/);
   assert.deepEqual(stored, [{ key: "private-key", path: "/secure/credentials.json" }]);
   assert.deepEqual(installed, ["codex", "gemini"]);
+  assert.match(output.text(), /EVENTS MCP/);
+  assert.match(output.text(), /\[1\/3\] Detect AI clients/);
+  assert.match(output.text(), /\[2\/3\] Connect to Luma/);
+  assert.match(output.text(), /\[3\/3\] Review and install/);
   assert.doesNotMatch(output.text(), /private-key/);
+});
+
+test("setup banner has compact ASCII branding and an optional ANSI accent", () => {
+  const plain = setupBanner();
+  assert.match(plain, /_     _   _ __  __    _/);
+  assert.match(plain, /EVENTS MCP/);
+  assert.doesNotMatch(plain, /\u001b\[/);
+  assert.match(setupBanner(true), /\u001b\[35m/);
 });
 
 type ClientIdForTest = DetectedClient["id"];
@@ -287,4 +300,29 @@ test("packaged entry exposes setup help without starting stdio", () => {
   assert.match(result.stdout, /luma-events-mcp setup/);
   assert.match(result.stdout, /Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI/);
   assert.equal(result.stderr, "");
+});
+
+test("packaged interactive setup exits without an unsettled top-level await warning", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("Executable fixture uses POSIX permissions.");
+    return;
+  }
+  const directory = await mkdtemp(join(tmpdir(), "luma-events-clean-exit-"));
+  const codex = join(directory, "codex");
+  await writeFile(codex, "#!/bin/sh\nexit 0\n", "utf8");
+  await chmod(codex, 0o755);
+
+  const result = spawnSync(
+    process.execPath,
+    ["dist/index.js", "setup", "--dry-run"],
+    {
+      encoding: "utf8",
+      input: "\n",
+      env: { ...process.env, PATH: directory, NO_COLOR: "1" }
+    }
+  );
+
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Dry run complete/);
+  assert.doesNotMatch(result.stderr, /unsettled top-level await/i);
 });
