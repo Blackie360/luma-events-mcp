@@ -212,7 +212,7 @@ After the package is published, an MCP client can launch it directly with
       "args": [
         "-y",
         "--package",
-        "@blackie360/luma-events-mcp@0.5.1",
+        "@blackie360/luma-events-mcp@0.5.2",
         "luma-events-mcp"
       ],
       "env": {
@@ -406,8 +406,8 @@ To publish a release after reviewing the tarball, update every synchronized
 version, commit and push the change, then push a matching version tag:
 
 ```bash
-git tag v0.5.2
-git push origin v0.5.2
+git tag v0.5.3
+git push origin v0.5.3
 ```
 
 The GitHub Actions release workflow verifies that the tag matches

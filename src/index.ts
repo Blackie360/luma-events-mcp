@@ -106,7 +106,7 @@ export function requireConfirmation(confirmed: boolean, action: string): void {
 }
 
 export function createServer(): McpServer {
-  const server = new McpServer({ name: "luma-events", version: "0.5.1" });
+  const server = new McpServer({ name: "luma-events", version: "0.5.2" });
 
 server.registerTool("verify_connection", {
   title: "Verify Luma connection",

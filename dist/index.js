@@ -21187,7 +21187,7 @@ function requireConfirmation(confirmed, action) {
   if (!confirmed) throw new Error(`Confirmation required before ${action}. Review the proposed values, ask the user to confirm, then retry with confirmed=true.`);
 }
 function createServer() {
-  const server = new McpServer({ name: "luma-events", version: "0.5.1" });
+  const server = new McpServer({ name: "luma-events", version: "0.5.2" });
   server.registerTool("verify_connection", {
     title: "Verify Luma connection",
     description: "Verify the configured Luma API key and return the authenticated user.",
