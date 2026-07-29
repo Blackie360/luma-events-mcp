@@ -437,10 +437,11 @@ branch—runs `.github/workflows/publish.yml`. The serialized workflow:
 5. Commits generated release metadata when needed and creates the matching tag.
 6. Publishes through npm trusted publishing and creates a GitHub Release.
 
-Release commits use `chore: release vX.Y.Z` and are ignored by the trigger,
-preventing recursive releases. GitHub's workflow concurrency guard ensures that
-only one npm publication runs at a time. Maintainers can also start the same
-process manually with **Actions → Publish npm package → Run workflow**.
+Release commits use `chore: release vX.Y.Z` and are pushed with the workflow's
+`GITHUB_TOKEN`, so GitHub does not create a recursive workflow run. The
+workflow concurrency guard ensures that only one npm publication runs at a
+time. Maintainers can also start the same process manually with
+**Actions → Publish npm package → Run workflow**.
 
 ---
 
