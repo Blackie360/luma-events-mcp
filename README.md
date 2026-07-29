@@ -402,12 +402,18 @@ archive. The published package contains the executable bundle, declaration
 file, documentation, license, and Codex/Cursor plugin manifests; development
 source, tests, source maps, screenshots, and local secrets are excluded.
 
-To publish a release after reviewing the tarball:
+To publish a release after reviewing the tarball, update every synchronized
+version, commit and push the change, then push a matching version tag:
 
 ```bash
-npm login
-npm publish
+git tag v0.5.2
+git push origin v0.5.2
 ```
+
+The GitHub Actions release workflow verifies that the tag matches
+`package.json`, publishes the public npm package through npm trusted publishing,
+and creates a GitHub Release with generated release notes. Never reuse an npm
+version or move a published version tag.
 
 The test suite covers write confirmation, two-step event deletion, API error
 reporting, pagination, resumable waitlist approvals, invite batching, audience
