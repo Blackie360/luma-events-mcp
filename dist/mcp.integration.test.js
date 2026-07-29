@@ -1,35 +1,145 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createServer as createHttpServer } from "node:http";
 import test from "node:test";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { createServer } from "./index.js";
-test("MCP client discovers and safely calls delete_event", async (t) => {
-    process.env.LUMA_API_KEY = "test-key";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+const MODERN_PROTOCOL_VERSION = "2026-07-28";
+async function createLumaMock(t, responder) {
     const requests = [];
-    t.mock.method(globalThis, "fetch", async (input, init) => {
-        const url = input instanceof URL
-            ? input
-            : new URL(typeof input === "string" ? input : input.url);
-        const method = init?.method ?? "GET";
-        const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-        requests.push({ path: url.pathname, method, body });
-        if (url.pathname === "/v1/events/get") {
-            return Response.json({ id: "evt-test", name: "Test Event", start_at: "2026-08-14T14:00:00Z" });
+    const server = createHttpServer(async (request, response) => {
+        try {
+            const chunks = [];
+            for await (const chunk of request)
+                chunks.push(Buffer.from(chunk));
+            const rawBody = Buffer.concat(chunks).toString();
+            const url = new URL(request.url ?? "/", "http://127.0.0.1");
+            const recorded = {
+                path: url.pathname,
+                method: request.method ?? "GET",
+                body: rawBody ? JSON.parse(rawBody) : undefined,
+                query: url.search
+            };
+            requests.push(recorded);
+            const payload = await responder(recorded, url);
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify(payload ?? {}));
         }
-        if (url.pathname === "/v1/events/cancel/request") {
-            return Response.json({ cancellation_token: "cancel-secret", is_paid: false, guest_count: 12 });
+        catch (error) {
+            response.writeHead(500, { "content-type": "application/json" });
+            response.end(JSON.stringify({
+                error: error instanceof Error ? error.message : String(error)
+            }));
         }
-        assert.equal(url.pathname, "/v1/events/cancel");
-        return Response.json({});
     });
-    const server = createServer();
-    const client = new Client({ name: "luma-events-delete-test", version: "1.0.0" });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    await new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+    });
+    t.after(async () => {
+        await new Promise((resolve, reject) => {
+            server.close((error) => error ? reject(error) : resolve());
+        });
+    });
+    const address = server.address();
+    assert.ok(address && typeof address === "object");
+    return { requests, apiBase: `http://127.0.0.1:${address.port}` };
+}
+async function connectModernClient(name, apiBase) {
+    const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: ["dist/index.js"],
+        env: {
+            ...process.env,
+            LUMA_API_KEY: "test-key",
+            ...(apiBase ? { LUMA_API_BASE: apiBase } : {})
+        }
+    });
+    const client = new Client({ name, version: "1.0.0" }, { versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } } });
+    await client.connect(transport);
+    assert.equal(client.getProtocolEra(), "modern");
+    return client;
+}
+async function sendLegacyInitialize() {
+    const child = spawn(process.execPath, ["dist/index.js"], {
+        env: { ...process.env, LUMA_API_KEY: "test-key" },
+        stdio: ["pipe", "pipe", "pipe"]
+    });
+    return await new Promise((resolve, reject) => {
+        let stdout = "";
+        let stderr = "";
+        const timeout = setTimeout(() => {
+            child.kill("SIGTERM");
+            reject(new Error(`Timed out waiting for legacy rejection. stderr=${stderr}`));
+        }, 5_000);
+        child.stdout.on("data", (chunk) => {
+            stdout += chunk.toString();
+            const lineEnd = stdout.indexOf("\n");
+            if (lineEnd === -1)
+                return;
+            clearTimeout(timeout);
+            child.kill("SIGTERM");
+            try {
+                resolve(JSON.parse(stdout.slice(0, lineEnd)));
+            }
+            catch (error) {
+                reject(error);
+            }
+        });
+        child.stderr.on("data", (chunk) => {
+            stderr += chunk.toString();
+        });
+        child.on("error", (error) => {
+            clearTimeout(timeout);
+            reject(error);
+        });
+        child.stdin.write(`${JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+                protocolVersion: "2025-11-25",
+                capabilities: {},
+                clientInfo: { name: "legacy-audit", version: "1.0.0" }
+            }
+        })}\n`);
+    });
+}
+test("stdio entry serves MCP 2026-07-28 and rejects legacy initialization", async (t) => {
+    const client = new Client({ name: "luma-events-modern-stdio-test", version: "1.0.0" }, { versionNegotiation: { mode: { pin: MODERN_PROTOCOL_VERSION } } });
+    const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: ["dist/index.js"],
+        env: { ...process.env, LUMA_API_KEY: "test-key" }
+    });
+    await client.connect(transport);
     t.after(async () => {
         await client.close();
-        await server.close();
+    });
+    assert.equal(client.getProtocolEra(), "modern");
+    assert.equal(client.getServerVersion()?.version, "0.6.0");
+    const listed = await client.listTools(undefined, { cacheMode: "refresh" });
+    assert.equal(listed.tools.length, 23);
+    assert.equal(listed.cacheScope, "private");
+    assert.equal(listed.ttlMs, 0);
+    const legacyResponse = await sendLegacyInitialize();
+    assert.equal(legacyResponse.error?.code, -32022);
+    assert.match(String(legacyResponse.error?.message), /unsupported protocol version/i);
+});
+test("MCP client discovers and safely calls delete_event", async (t) => {
+    const { requests, apiBase } = await createLumaMock(t, ({ path }) => {
+        if (path === "/v1/events/get") {
+            return { id: "evt-test", name: "Test Event", start_at: "2026-08-14T14:00:00Z" };
+        }
+        if (path === "/v1/events/cancel/request") {
+            return { cancellation_token: "cancel-secret", is_paid: false, guest_count: 12 };
+        }
+        assert.equal(path, "/v1/events/cancel");
+        return {};
+    });
+    const client = await connectModernClient("luma-events-delete-test", apiBase);
+    t.after(async () => {
+        await client.close();
     });
     const listed = await client.listTools();
     assert.ok(listed.tools.some((tool) => tool.name === "delete_event"));
@@ -78,48 +188,36 @@ test("MCP client discovers and safely calls delete_event", async (t) => {
         }
     });
     assert.deepEqual(requests, [
-        { path: "/v1/events/get", method: "GET", body: undefined },
-        { path: "/v1/events/cancel/request", method: "POST", body: { event_id: "evt-test" } },
-        { path: "/v1/events/get", method: "GET", body: undefined },
-        { path: "/v1/events/cancel/request", method: "POST", body: { event_id: "evt-test" } },
+        { path: "/v1/events/get", method: "GET", body: undefined, query: "?event_id=evt-test" },
+        { path: "/v1/events/cancel/request", method: "POST", body: { event_id: "evt-test" }, query: "" },
+        { path: "/v1/events/get", method: "GET", body: undefined, query: "?event_id=evt-test" },
+        { path: "/v1/events/cancel/request", method: "POST", body: { event_id: "evt-test" }, query: "" },
         {
             path: "/v1/events/cancel",
             method: "POST",
             body: {
                 event_id: "evt-test",
                 cancellation_token: "cancel-secret"
-            }
+            },
+            query: ""
         }
     ]);
 });
 test("MCP client discovers and safely calls approve_waitlisted_guests", async (t) => {
-    process.env.LUMA_API_KEY = "test-key";
-    const requests = [];
-    t.mock.method(globalThis, "fetch", async (input, init) => {
-        const url = input instanceof URL
-            ? input
-            : new URL(typeof input === "string" ? input : input.url);
-        const method = init?.method ?? "GET";
-        const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-        requests.push({ path: url.pathname, method, body });
-        if (url.pathname === "/v1/events/guests/list") {
+    const { requests, apiBase } = await createLumaMock(t, ({ path }, url) => {
+        if (path === "/v1/events/guests/list") {
             assert.equal(url.searchParams.get("approval_status"), "waitlist");
-            return Response.json({
+            return {
                 entries: [{ id: "gst-one" }, { id: "gst-two" }],
                 has_more: false
-            });
+            };
         }
-        assert.equal(url.pathname, "/v1/events/guests/update-status");
-        return Response.json({});
+        assert.equal(path, "/v1/events/guests/update-status");
+        return {};
     });
-    const server = createServer();
-    const client = new Client({ name: "luma-events-test", version: "1.0.0" });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    const client = await connectModernClient("luma-events-test", apiBase);
     t.after(async () => {
         await client.close();
-        await server.close();
     });
     const listed = await client.listTools();
     assert.ok(listed.tools.some((tool) => tool.name === "approve_waitlisted_guests"));
@@ -157,7 +255,8 @@ test("MCP client discovers and safely calls approve_waitlisted_guests", async (t
         {
             path: "/v1/events/guests/list",
             method: "GET",
-            body: undefined
+            body: undefined,
+            query: "?event_id=evt-test&approval_status=waitlist&pagination_limit=100"
         },
         {
             path: "/v1/events/guests/update-status",
@@ -167,7 +266,8 @@ test("MCP client discovers and safely calls approve_waitlisted_guests", async (t
                 guest_id: "gst-one",
                 status: "approved",
                 send_email: false
-            }
+            },
+            query: ""
         },
         {
             path: "/v1/events/guests/update-status",
@@ -177,33 +277,21 @@ test("MCP client discovers and safely calls approve_waitlisted_guests", async (t
                 guest_id: "gst-two",
                 status: "approved",
                 send_email: false
-            }
+            },
+            query: ""
         }
     ]);
 });
 test("MCP client discovers and safely calls the v0.3 guest tools", async (t) => {
-    process.env.LUMA_API_KEY = "test-key";
-    const requests = [];
-    t.mock.method(globalThis, "fetch", async (input, init) => {
-        const url = input instanceof URL
-            ? input
-            : new URL(typeof input === "string" ? input : input.url);
-        const method = init?.method ?? "GET";
-        const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-        requests.push({ path: url.pathname, method, body, query: url.search });
-        if (url.pathname === "/v1/events/guests/get") {
-            return Response.json({ id: "gst-one", user_email: "guest@example.com" });
+    const { requests, apiBase } = await createLumaMock(t, ({ path }) => {
+        if (path === "/v1/events/guests/get") {
+            return { id: "gst-one", user_email: "guest@example.com" };
         }
-        return Response.json({});
+        return {};
     });
-    const server = createServer();
-    const client = new Client({ name: "luma-events-v03-test", version: "1.0.0" });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    const client = await connectModernClient("luma-events-v03-test", apiBase);
     t.after(async () => {
         await client.close();
-        await server.close();
     });
     const listed = await client.listTools();
     for (const name of ["get_guest", "add_guests", "send_invites", "invite_guests_from_event"]) {
@@ -301,25 +389,17 @@ test("MCP client discovers and safely calls the v0.3 guest tools", async (t) => 
         }
     ]);
 });
-test("MCP client discovers and safely calls the v0.5 guest, ticket, and host tools", async (t) => {
-    process.env.LUMA_API_KEY = "test-key";
-    const requests = [];
-    t.mock.method(globalThis, "fetch", async (input, init) => {
-        const url = input instanceof URL
-            ? input
-            : new URL(typeof input === "string" ? input : input.url);
-        const method = init?.method ?? "GET";
-        const body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
-        requests.push({ path: url.pathname, method, body, query: url.search });
-        if (url.pathname === "/v1/events/get") {
-            return Response.json({
+test("MCP client discovers and safely calls the guest, ticket, and host tools", async (t) => {
+    const { requests, apiBase } = await createLumaMock(t, ({ path, body }) => {
+        if (path === "/v1/events/get") {
+            return {
                 id: "evt-test",
-                name: "v0.5 Event",
+                name: "Operations Event",
                 hosts: [{ id: "usr-host", email: "host@example.com", name: "Test Host" }]
-            });
+            };
         }
-        if (url.pathname === "/v1/events/guests/get") {
-            return Response.json({
+        if (path === "/v1/events/guests/get") {
+            return {
                 id: "gst-one",
                 user_email: "guest@example.com",
                 user_name: "Test Guest",
@@ -327,35 +407,30 @@ test("MCP client discovers and safely calls the v0.5 guest, ticket, and host too
                 event_tickets: [
                     { id: "tkt-one", name: "General", event_ticket_type_id: "ttype-general", amount: 0, is_captured: true }
                 ]
-            });
+            };
         }
-        if (url.pathname === "/v1/events/ticket-types/list") {
-            return Response.json({
+        if (path === "/v1/events/ticket-types/list") {
+            return {
                 entries: [
                     { id: "ttype-general", name: "General", type: "free", is_hidden: false },
                     { id: "ttype-extra", name: "Extra", type: "free", is_hidden: true }
                 ]
-            });
+            };
         }
-        if (url.pathname === "/v1/events/ticket-types/get") {
-            return Response.json({ id: "ttype-extra", name: "Extra", type: "free", is_hidden: true });
+        if (path === "/v1/events/ticket-types/get") {
+            return { id: "ttype-extra", name: "Extra", type: "free", is_hidden: true };
         }
-        if (url.pathname === "/v1/events/ticket-types/create") {
-            return Response.json({ id: "ttype-created", ...body });
+        if (path === "/v1/events/ticket-types/create") {
+            return { id: "ttype-created", ...body };
         }
-        if (url.pathname === "/v1/events/ticket-types/update") {
-            return Response.json({ id: "ttype-extra", name: "Updated", type: "free" });
+        if (path === "/v1/events/ticket-types/update") {
+            return { id: "ttype-extra", name: "Updated", type: "free" };
         }
-        return Response.json({});
+        return {};
     });
-    const server = createServer();
-    const client = new Client({ name: "luma-events-v05-test", version: "1.0.0" });
-    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-    await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    const client = await connectModernClient("luma-events-v05-test", apiBase);
     t.after(async () => {
         await client.close();
-        await server.close();
     });
     const listed = await client.listTools();
     const tools = new Map(listed.tools.map((tool) => [tool.name, tool]));

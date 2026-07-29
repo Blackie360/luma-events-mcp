@@ -1,6 +1,6 @@
 {
   "name": "@blackie360/luma-events-mcp",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "MCP server and Codex/Cursor plugin for safely managing Luma events, guests, tickets, and hosts.",
   "type": "module",
   "bin": {
@@ -18,9 +18,10 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --platform=node --format=esm --target=node20 --sourcemap --outfile=dist/index.js",
+    "build": "tsc -p tsconfig.json && esbuild src/index.ts --bundle --minify-whitespace --platform=node --format=esm --target=node20 --sourcemap --outfile=dist/index.js && pnpm strip-generated-whitespace",
     "check": "tsc -p tsconfig.json --noEmit",
     "prepack": "pnpm check && pnpm test",
+    "strip-generated-whitespace": "node --input-type=module -e \"import fs from 'node:fs'; const path = 'dist/index.js'; const source = fs.readFileSync(path, 'utf8'); fs.writeFileSync(path, source.replace(/[\\\\t ]+$/gm, ''));\"",
     "test": "pnpm build && node --test dist/*.test.js",
     "start": "node dist/index.js"
   },
@@ -47,11 +48,12 @@
     "access": "public"
   },
   "devDependencies": {
-    "@modelcontextprotocol/sdk": "^1.17.0",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.6",
     "typescript": "^5.8.0",
-    "zod": "^3.25.0"
+    "zod": "^4.4.3"
   },
   "packageManager": "pnpm@10.13.1"
 }

@@ -11,12 +11,18 @@ hosts, send invitations, approve waitlists, and summarize registrations through
 natural-language requests.
 
 Built for event organizers who want Luma operations inside Codex, Cursor, or
-another MCP-compatible client—without giving up explicit confirmation before
+another modern MCP client—without giving up explicit confirmation before
 important changes.
 
 > [!IMPORTANT]
 > This is an independent, community-built project and is not affiliated with or
 > endorsed by Luma.
+
+> [!WARNING]
+> Version 0.6.0 is a breaking protocol upgrade. It supports only MCP
+> `2026-07-28` through the MCP TypeScript SDK v2. Clients that use the legacy
+> `initialize` flow or a 2025 protocol revision are rejected instead of being
+> silently downgraded.
 
 ### Use cases
 
@@ -40,7 +46,8 @@ important changes.
 2. A Luma calendar with API access.
 3. A calendar API key from the
    [Luma API settings](https://docs.luma.com/reference/getting-started-with-your-api).
-4. An MCP-compatible client such as
+4. An MCP client that supports the `2026-07-28` protocol revision, such as a
+   current version of
    [OpenAI Codex](https://developers.openai.com/codex/) or
    [Cursor](https://www.cursor.com/).
 
@@ -341,7 +348,9 @@ pnpm pack
 Tests cover confirmation guards, event deletion, API errors, pagination,
 resumable waitlist approval, invitation batching, audience deduplication,
 refund rules, ticket invariants, host matching, privacy-conscious previews, and
-MCP discovery.
+modern MCP discovery. The integration suite launches the packaged stdio server,
+pins negotiation to MCP `2026-07-28`, verifies all 23 tools, and confirms that a
+legacy `initialize` request is rejected.
 
 ### Project structure
 
@@ -366,8 +375,8 @@ Release tags publish through npm trusted publishing and generate a GitHub
 Release:
 
 ```bash
-git tag v0.5.3
-git push origin v0.5.3
+git tag v0.6.0
+git push origin v0.6.0
 ```
 
 The tag must match the version in `package.json`. Never reuse a published npm

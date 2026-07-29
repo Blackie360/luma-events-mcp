@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -106,49 +106,55 @@ export function requireConfirmation(confirmed: boolean, action: string): void {
 }
 
 export function createServer(): McpServer {
-  const server = new McpServer({ name: "luma-events", version: "0.5.2" });
+  const server = new McpServer(
+    { name: "luma-events", version: "0.6.0" },
+    {
+      capabilities: { tools: {} },
+      supportedProtocolVersions: ["2026-07-28"]
+    }
+  );
 
 server.registerTool("verify_connection", {
   title: "Verify Luma connection",
   description: "Verify the configured Luma API key and return the authenticated user.",
-  inputSchema: {},
+  inputSchema: z.object({}),
   annotations: { readOnlyHint: true, openWorldHint: true }
 }, async () => result(await luma("/v1/users/get-self")));
 
 server.registerTool("list_events", {
   title: "List Luma events",
   description: "List events from the calendar attached to the configured API key.",
-  inputSchema: {
+  inputSchema: z.object({
     after: z.string().datetime().optional().describe("Only events after this ISO 8601 datetime."),
     before: z.string().datetime().optional().describe("Only events before this ISO 8601 datetime."),
     status: z.enum(["approved", "pending"]).optional().describe("Filter by calendar submission status. Defaults to approved."),
     pagination_limit: z.number().int().min(1).max(100).default(25),
     pagination_cursor: z.string().optional()
-  },
+  }),
   annotations: { readOnlyHint: true, openWorldHint: true }
 }, async (input) => result(await luma("/v1/calendars/events/list", { query: input })));
 
 server.registerTool("get_event", {
   title: "Get Luma event",
   description: "Get complete details for one Luma event.",
-  inputSchema: { event_id: z.string().min(1) },
+  inputSchema: z.object({ event_id: z.string().min(1) }),
   annotations: { readOnlyHint: true, openWorldHint: true }
 }, async ({ event_id }) => result(await luma("/v1/events/get", { query: { event_id } })));
 
 server.registerTool("get_guest", {
   title: "Get Luma guest",
   description: "Get complete details for one event guest by guest ID, ticket key, guest key, or email. The response contains personal information and ticket-order details.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     id: z.string().min(1).describe("Guest ID, ticket key, guest key, or email.")
-  },
+  }),
   annotations: { readOnlyHint: true, openWorldHint: true }
 }, async (input) => result(await luma("/v1/events/guests/get", { query: input })));
 
 server.registerTool("update_guest_status", {
   title: "Update Luma guest status",
   description: "Preview or update one guest's status. The preview shows the exact event, minimal guest identity, current and target status, captured paid-ticket count, refund choice, and notification settings. Moving an approved paid guest to a non-approved status requires an explicit refund choice.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     guest_id: z.string().min(1).describe("Guest ID, ticket key, guest key, or email."),
     status: writableGuestStatusSchema,
@@ -156,31 +162,31 @@ server.registerTool("update_guest_status", {
     send_email: z.boolean().default(true),
     message: z.string().max(200).optional(),
     confirmed: z.boolean().default(false).describe("False returns a non-mutating preview. True applies the status change after explicit confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
 }, async (input) => result(await updateGuestStatus(input)));
 
 server.registerTool("update_guest_tickets", {
   title: "Update Luma guest tickets",
   description: "Preview or add and remove tickets for one guest. Added tickets are complimentary administrative tickets and may exceed capacity. Removed tickets are invalidated without a refund. Luma still sends an in-app notification even when email is disabled.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     guest_id: z.string().min(1).describe("Guest ID, ticket key, guest key, or email."),
     ticket_ids_to_remove: z.array(z.string().min(1)).max(100).default([]),
     tickets_to_add: z.array(ticketSchema).max(100).default([]),
     send_email: z.boolean().default(true),
     confirmed: z.boolean().default(false).describe("False returns a non-mutating preview. True applies the ticket changes after explicit confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
 }, async (input) => result(await updateGuestTickets(input)));
 
 server.registerTool("list_ticket_types", {
   title: "List Luma ticket types",
   description: "List all ticket types for an event, optionally including hidden ticket types.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     include_hidden: z.boolean().default(false)
-  },
+  }),
   annotations: { readOnlyHint: true, openWorldHint: true }
 }, async ({ event_id, include_hidden }) => result(await luma("/v1/events/ticket-types/list", {
   query: {
@@ -192,16 +198,16 @@ server.registerTool("list_ticket_types", {
 server.registerTool("get_ticket_type", {
   title: "Get Luma ticket type",
   description: "Get one ticket type by its ticket-type ID.",
-  inputSchema: {
+  inputSchema: z.object({
     event_ticket_type_id: z.string().min(1)
-  },
+  }),
   annotations: { readOnlyHint: true, openWorldHint: true }
 }, async (input) => result(await luma("/v1/events/ticket-types/get", { query: input })));
 
 server.registerTool("create_ticket_type", {
   title: "Create Luma ticket type",
   description: "Create a free, paid, or flexible-price ticket type after explicit confirmation. Review the event, price, currency, visibility, approval, sale dates, and capacity before confirming.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     name: z.string().min(1),
     type: z.enum(["free", "paid"]),
@@ -216,7 +222,7 @@ server.registerTool("create_ticket_type", {
     is_flexible: z.boolean().optional(),
     min_cents: z.number().int().nonnegative().nullable().optional(),
     confirmed: z.boolean().describe("Must be true only after explicit user confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
 }, async ({ confirmed, ...body }) => {
   requireConfirmation(confirmed, "creating the Luma ticket type");
@@ -226,11 +232,11 @@ server.registerTool("create_ticket_type", {
 server.registerTool("update_ticket_type", {
   title: "Update Luma ticket type",
   description: "Update selected fields on a ticket type after explicit confirmation. Nullable fields clear their current value.",
-  inputSchema: {
+  inputSchema: z.object({
     event_ticket_type_id: z.string().min(1),
     ...ticketTypeMutableFields,
     confirmed: z.boolean().describe("Must be true only after explicit user confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
 }, async ({ confirmed, event_ticket_type_id, ...changes }) => {
   requireConfirmation(confirmed, "updating the Luma ticket type");
@@ -244,25 +250,25 @@ server.registerTool("update_ticket_type", {
 server.registerTool("delete_ticket_type", {
   title: "Delete Luma ticket type",
   description: "Preview or delete one ticket type. The preview verifies that the ticket type belongs to the event and shows its exact settings. Luma may refuse deletion when tickets have been sold or when this is the last visible ticket type.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     event_ticket_type_id: z.string().min(1),
     confirmed: z.boolean().default(false).describe("False returns a non-mutating preview. True deletes the ticket type after explicit confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
 }, async (input) => result(await deleteTicketType(input)));
 
 server.registerTool("add_host", {
   title: "Add Luma event host",
   description: "Add a host or check-in staff member to an event after explicit confirmation.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     email: z.string().email(),
     name: z.string().min(1).optional(),
     access_level: hostAccessLevelSchema.default("manager"),
     is_visible: z.boolean().default(true),
     confirmed: z.boolean().describe("Must be true only after explicit user confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
 }, async ({ confirmed, ...body }) => {
   requireConfirmation(confirmed, "adding the Luma event host");
@@ -279,13 +285,13 @@ server.registerTool("add_host", {
 server.registerTool("update_host", {
   title: "Update Luma event host",
   description: "Update a host's access level or public visibility after explicit confirmation. The event creator's access level cannot be changed.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     email: z.string().email(),
     access_level: hostAccessLevelSchema.optional(),
     is_visible: z.boolean().optional(),
     confirmed: z.boolean().describe("Must be true only after explicit user confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
 }, async ({ confirmed, event_id, email, ...changes }) => {
   requireConfirmation(confirmed, "updating the Luma event host");
@@ -306,11 +312,11 @@ server.registerTool("update_host", {
 server.registerTool("remove_host", {
   title: "Remove Luma event host",
   description: "Preview or remove one host from an event. The preview resolves the event and exact email. Visible hosts include their returned Luma identity; hidden hosts may be omitted from the event response and are clearly marked as unverified before confirmation.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     email: z.string().email(),
     confirmed: z.boolean().default(false).describe("False returns a non-mutating preview. True removes the host after explicit confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
 }, async (input) => result(await removeHost(input)));
 
@@ -334,7 +340,7 @@ const eventFields = {
 server.registerTool("create_event", {
   title: "Create Luma event",
   description: "Create a Luma event. Call only after the user has explicitly confirmed the event name, date/time, timezone, and supplied details.",
-  inputSchema: { ...eventFields, confirmed: z.boolean().describe("Must be true only after explicit user confirmation.") },
+  inputSchema: z.object({ ...eventFields, confirmed: z.boolean().describe("Must be true only after explicit user confirmation.") }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
 }, async ({ confirmed, ...body }) => {
   requireConfirmation(confirmed, "creating the Luma event");
@@ -344,7 +350,7 @@ server.registerTool("create_event", {
 server.registerTool("update_event", {
   title: "Update Luma event",
   description: "Update selected fields on a Luma event. Call only after showing the changes and receiving explicit confirmation.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     confirmed: z.boolean(),
     name: z.string().min(1).optional(),
@@ -362,7 +368,7 @@ server.registerTool("update_event", {
     waitlist_status: z.enum(["enabled", "disabled"]).optional(),
     show_guest_list: z.boolean().optional(),
     suppress_notifications: z.boolean().default(false)
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
 }, async ({ confirmed, ...body }) => {
   requireConfirmation(confirmed, "updating the Luma event");
@@ -372,11 +378,11 @@ server.registerTool("update_event", {
 server.registerTool("delete_event", {
   title: "Cancel and delete Luma event",
   description: "Preview or permanently cancel and delete one Luma event. Call with confirmed=false first to show the exact event, approved guest count, and whether a refund choice is required. Cancellation is irreversible: Luma deletes the event and notifies all guests. Call with confirmed=true only after the user explicitly confirms the event and, for a paid event, whether guests should be refunded.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     should_refund: z.boolean().optional().describe("Whether to refund paid guests. Required when the preview reports is_paid=true."),
     confirmed: z.boolean().default(false).describe("False returns a non-destructive preview. True permanently cancels and deletes the event after explicit user confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
 }, async (input) => {
   return result(await deleteEvent(input));
@@ -385,7 +391,7 @@ server.registerTool("delete_event", {
 server.registerTool("add_guests", {
   title: "Add Luma guests",
   description: "Add guests directly to an event with tickets and an approved, pending-approval, or waitlist status. This registers guests rather than sending a soft invite. Show the event, recipient count, status, ticket assignment, and email choice before asking for confirmation.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     guests: z.array(guestToAddSchema).min(1).max(500),
     ticket: ticketSchema.optional().describe("One ticket type assigned to every guest. Cannot be combined with tickets."),
@@ -393,7 +399,7 @@ server.registerTool("add_guests", {
     approval_status: z.enum(["approved", "pending_approval", "waitlist"]).default("approved"),
     send_email: z.boolean().default(true),
     confirmed: z.boolean().describe("Must be true only after explicit user confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
 }, async ({ confirmed, ticket, tickets, ...body }) => {
   requireConfirmation(confirmed, "adding guests to the Luma event");
@@ -419,12 +425,12 @@ server.registerTool("add_guests", {
 server.registerTool("send_invites", {
   title: "Send Luma event invites",
   description: "Send soft event invitations by email and, when linked to a Luma account, SMS. Invited people choose whether to register. Show the event, recipient count, and message before asking for confirmation.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     guests: z.array(guestContactSchema).min(1).max(500),
     message: z.string().max(200).optional(),
     confirmed: z.boolean().describe("Must be true only after explicit user confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
 }, async ({ confirmed, ...input }) => {
   requireConfirmation(confirmed, "sending Luma event invitations");
@@ -434,13 +440,13 @@ server.registerTool("send_invites", {
 server.registerTool("invite_guests_from_event", {
   title: "Invite guests from another Luma event",
   description: "Build a privacy-conscious audience from selected guest statuses on a source event, remove duplicate emails and anyone already on the target event, and send soft Luma invitations in batches. Call with confirmed=false first to preview aggregate counts without exposing identities; call again with confirmed=true only after explicit approval.",
-  inputSchema: {
+  inputSchema: z.object({
     source_event_id: z.string().min(1),
     target_event_id: z.string().min(1),
     source_statuses: z.array(approvalStatusSchema).min(1).max(6).default(["approved", "waitlist"]),
     message: z.string().max(200).optional(),
     confirmed: z.boolean().default(false).describe("False returns an aggregate preview. True rebuilds the audience and sends the invitations.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }
 }, async (input) => {
   return result(await inviteGuestsFromEvent(input, luma));
@@ -449,13 +455,13 @@ server.registerTool("invite_guests_from_event", {
 server.registerTool("approve_waitlisted_guests", {
   title: "Approve waitlisted Luma guests",
   description: "Approve up to " + MAX_APPROVALS_PER_RUN + " currently waitlisted guests per run, leaving rate-limit headroom. Large waitlists are safely resumable by rerunning the tool until resume_required is false. Call only after showing the event, waitlisted guest count, and email notification choice, then receiving explicit confirmation.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     max_approvals: z.number().int().min(1).max(MAX_APPROVALS_PER_RUN).default(MAX_APPROVALS_PER_RUN),
     send_email: z.boolean().default(true).describe("Whether Luma should email each guest about the approval."),
     message: z.string().max(200).optional().describe("Optional personal message included in Luma's approval email. Cannot be used when send_email is false."),
     confirmed: z.boolean().describe("Must be true only after explicit user confirmation.")
-  },
+  }),
   annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true }
 }, async ({ event_id, max_approvals, send_email, message, confirmed }) => {
   requireConfirmation(confirmed, "approving all waitlisted Luma guests");
@@ -465,19 +471,19 @@ server.registerTool("approve_waitlisted_guests", {
 server.registerTool("list_guests", {
   title: "List Luma guests",
   description: "List guests for an event. Guest data may include personal information; use only for event operations requested by the user.",
-  inputSchema: {
+  inputSchema: z.object({
     event_id: z.string().min(1),
     approval_status: z.enum(["approved", "session", "pending_approval", "invited", "declined", "waitlist"]).optional(),
     pagination_limit: z.number().int().min(1).max(100).default(50),
     pagination_cursor: z.string().optional()
-  },
+  }),
   annotations: { readOnlyHint: true, openWorldHint: true }
 }, async (input) => result(await luma("/v1/events/guests/list", { query: input })));
 
 server.registerTool("registration_summary", {
   title: "Summarize Luma registrations",
   description: "Count guest approval states and check-ins for an event across all guest pages without returning guest identities.",
-  inputSchema: { event_id: z.string().min(1) },
+  inputSchema: z.object({ event_id: z.string().min(1) }),
   annotations: { readOnlyHint: true, openWorldHint: true }
 }, async ({ event_id }) => {
   return result(await summarizeRegistrations(event_id));
@@ -1162,6 +1168,5 @@ export function isMainModule(entryPath = process.argv[1], moduleUrl = import.met
 }
 
 if (isMainModule()) {
-  const transport = new StdioServerTransport();
-  await createServer().connect(transport);
+  serveStdio(createServer, { legacy: "reject" });
 }
