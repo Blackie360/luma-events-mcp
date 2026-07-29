@@ -1,6 +1,6 @@
 {
   "name": "luma-events",
-  "version": "0.7.0+codex.20260729",
+  "version": "0.7.1+codex.20260729",
   "description": "Manage Luma events, guests, tickets, hosts, invitations, and registration insights from Codex.",
   "author": {
     "name": "Felix Jumason",

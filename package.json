@@ -1,6 +1,6 @@
 {
   "name": "@blackie360/luma-events-mcp",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "MCP server and Codex/Cursor plugin for safely managing Luma events, guests, tickets, and hosts.",
   "type": "module",
   "bin": {
