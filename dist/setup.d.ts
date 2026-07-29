@@ -41,6 +41,7 @@ export declare class InteractivePrompter {
     private readonly lineIterator?;
     constructor(input?: InteractiveInput, output?: InteractiveOutput);
     ask(question: string, secret?: boolean): Promise<string>;
+    selectClients(detected: DetectedClient[]): Promise<DetectedClient[]>;
     close(): void;
     private askSecret;
 }
@@ -49,7 +50,7 @@ export type SetupDependencies = {
     verify?: (apiKey: string) => Promise<void>;
     store?: (apiKey: string, path: string) => Promise<void>;
     install?: (client: DetectedClient) => Promise<InstallResult>;
-    prompter?: Pick<InteractivePrompter, "ask" | "close">;
+    prompter?: Pick<InteractivePrompter, "ask" | "close"> & Partial<Pick<InteractivePrompter, "selectClients">>;
     output?: InteractiveOutput;
     credentialsFile?: string;
 };

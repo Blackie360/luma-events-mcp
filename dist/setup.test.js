@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
 import { mkdtemp } from "node:fs/promises";
-import { credentialsPath, detectClients, installClient, parseClientSelection, readStoredApiKey, runInteractiveSetup, setupBanner, storeApiKey, verifyLumaApiKey } from "./setup.js";
+import { credentialsPath, detectClients, InteractivePrompter, installClient, parseClientSelection, readStoredApiKey, runInteractiveSetup, setupBanner, storeApiKey, verifyLumaApiKey } from "./setup.js";
 function outputCapture() {
     const stream = new PassThrough();
     let content = "";
@@ -184,6 +184,31 @@ test("setup banner has compact ASCII branding and an optional ANSI accent", () =
     assert.match(plain, /EVENTS MCP/);
     assert.doesNotMatch(plain, /\u001b\[/);
     assert.match(setupBanner(true), /\u001b\[35m/);
+});
+test("interactive client menu supports arrows, space toggles, and enter", async () => {
+    const clients = [
+        { id: "codex", label: "OpenAI Codex", executable: "/tools/codex", detection: "test" },
+        { id: "cursor", label: "Cursor", executable: "/tools/cursor", detection: "test" }
+    ];
+    const input = new PassThrough();
+    input.isTTY = true;
+    input.isRaw = false;
+    input.setRawMode = (enabled) => {
+        input.isRaw = enabled;
+    };
+    const output = outputCapture();
+    const interactiveOutput = output.stream;
+    interactiveOutput.isTTY = true;
+    const prompter = new InteractivePrompter(input, interactiveOutput);
+    const selection = prompter.selectClients(clients);
+    await new Promise((resolve) => setImmediate(resolve));
+    input.write("\u001b[B");
+    input.write(" ");
+    input.write("\r");
+    assert.deepEqual((await selection).map((client) => client.id), ["codex"]);
+    assert.equal(input.isRaw, false);
+    assert.match(output.text(), /Use ↑\/↓ to move, space to toggle/);
+    assert.match(output.text(), /\[x\]/);
 });
 test("declining the final plan performs zero writes", async () => {
     const prompts = fakePrompter(["all", "private-key", "no"]);

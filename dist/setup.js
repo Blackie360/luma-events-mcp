@@ -3,7 +3,7 @@ import { constants, readFileSync } from "node:fs";
 import { access, chmod, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
-import { createInterface } from "node:readline";
+import { createInterface, emitKeypressEvents } from "node:readline";
 const SERVER_NAME = "luma-events";
 const PACKAGE_SPEC = "@blackie360/luma-events-mcp@latest";
 const SERVER_COMMAND = ["-y", "--package", PACKAGE_SPEC, "luma-events-mcp"];
@@ -317,6 +317,109 @@ export class InteractivePrompter {
             });
         });
     }
+    async selectClients(detected) {
+        if (!this.input.isTTY || !this.input.setRawMode || !this.output.isTTY) {
+            while (true) {
+                const answer = await this.ask("Choose clients by number or name, separated by commas [all]\n> ");
+                try {
+                    return parseClientSelection(answer, detected);
+                }
+                catch (error) {
+                    this.output.write(`${error instanceof Error ? error.message : String(error)}\n`);
+                }
+            }
+        }
+        const color = process.env.NO_COLOR === undefined && process.env.TERM !== "dumb";
+        const selected = new Set(detected.map((client) => client.id));
+        const wasRaw = Boolean(this.input.isRaw);
+        let focused = 0;
+        let validationMessage = "";
+        let firstRender = true;
+        const style = (code, value) => color
+            ? `\u001b[${code}m${value}\u001b[0m`
+            : value;
+        const lines = () => [
+            `${style("1", "Choose AI clients")} ${style("2", "(all selected by default)")}`,
+            style("2", "Use ↑/↓ to move, space to toggle, a to toggle all, enter to continue."),
+            "",
+            ...detected.flatMap((client, index) => {
+                const active = index === focused;
+                const marker = selected.has(client.id) ? "[x]" : "[ ]";
+                const pointer = active ? ">" : " ";
+                const label = active ? style("1;35", client.label) : client.label;
+                return [
+                    `${pointer} ${style(selected.has(client.id) ? "35" : "2", marker)} ${label}`,
+                    `      ${style("2", client.detection)}`
+                ];
+            }),
+            "",
+            validationMessage
+                ? style("31", validationMessage)
+                : style("2", `Selected ${selected.size} of ${detected.length}`)
+        ];
+        const render = () => {
+            const rendered = lines();
+            if (!firstRender)
+                this.output.write(`\u001b[${rendered.length}F\u001b[J`);
+            this.output.write(`${rendered.join("\n")}\n`);
+            firstRender = false;
+        };
+        emitKeypressEvents(this.input);
+        this.input.setRawMode(true);
+        this.input.resume();
+        render();
+        return await new Promise((resolve, reject) => {
+            const cleanup = () => {
+                this.input.off("keypress", onKeypress);
+                this.input.setRawMode?.(wasRaw);
+                this.input.pause();
+            };
+            const onKeypress = (sequence, key) => {
+                validationMessage = "";
+                if (key.ctrl && key.name === "c") {
+                    cleanup();
+                    this.output.write("\n");
+                    reject(new Error("Setup cancelled."));
+                    return;
+                }
+                if (key.name === "up") {
+                    focused = (focused - 1 + detected.length) % detected.length;
+                }
+                else if (key.name === "down") {
+                    focused = (focused + 1) % detected.length;
+                }
+                else if (key.name === "space" || sequence === " ") {
+                    const id = detected[focused].id;
+                    if (selected.has(id))
+                        selected.delete(id);
+                    else
+                        selected.add(id);
+                }
+                else if (sequence.toLowerCase() === "a") {
+                    if (selected.size === detected.length)
+                        selected.clear();
+                    else
+                        detected.forEach((client) => selected.add(client.id));
+                }
+                else if (key.name === "return" || key.name === "enter") {
+                    if (selected.size === 0) {
+                        validationMessage = "Select at least one client before continuing.";
+                    }
+                    else {
+                        cleanup();
+                        this.output.write("\n");
+                        resolve(detected.filter((client) => selected.has(client.id)));
+                        return;
+                    }
+                }
+                else {
+                    return;
+                }
+                render();
+            };
+            this.input.on("keypress", onKeypress);
+        });
+    }
     close() {
         this.lineReader?.close();
     }
@@ -407,20 +510,22 @@ export async function runInteractiveSetup(args = [], dependencies = {}) {
             output.write("Supported adapters: Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI.\n");
             return 1;
         }
-        detected.forEach((client, index) => {
-            output.write(`  ${style.accent(`[${index + 1}]`)} ${style.bold(client.label)}\n`);
-            output.write(`      ${style.dim(client.detection)}\n`);
-        });
-        output.write("\n");
         let selected;
-        while (!selected) {
-            const answer = await prompter.ask("Choose clients by number or name, separated by commas [all]\n> ");
-            try {
-                selected = parseClientSelection(answer, detected);
+        if (prompter.selectClients) {
+            selected = await prompter.selectClients(detected);
+        }
+        else {
+            let parsed;
+            while (!parsed) {
+                const answer = await prompter.ask("Choose clients by number or name, separated by commas [all]\n> ");
+                try {
+                    parsed = parseClientSelection(answer, detected);
+                }
+                catch (error) {
+                    output.write(`${style.error(error instanceof Error ? error.message : String(error))}\n`);
+                }
             }
-            catch (error) {
-                output.write(`${style.error(error instanceof Error ? error.message : String(error))}\n`);
-            }
+            selected = parsed;
         }
         output.write(`\n${style.success("[ok]")} Selected: ${selected.map((client) => client.label).join(", ")}\n`);
         if (dryRun) {

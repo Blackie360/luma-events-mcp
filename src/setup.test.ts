@@ -10,6 +10,7 @@ import { mkdtemp } from "node:fs/promises";
 import {
   credentialsPath,
   detectClients,
+  InteractivePrompter,
   installClient,
   parseClientSelection,
   readStoredApiKey,
@@ -246,6 +247,38 @@ test("setup banner has compact ASCII branding and an optional ANSI accent", () =
   assert.match(plain, /EVENTS MCP/);
   assert.doesNotMatch(plain, /\u001b\[/);
   assert.match(setupBanner(true), /\u001b\[35m/);
+});
+
+test("interactive client menu supports arrows, space toggles, and enter", async () => {
+  const clients: DetectedClient[] = [
+    { id: "codex", label: "OpenAI Codex", executable: "/tools/codex", detection: "test" },
+    { id: "cursor", label: "Cursor", executable: "/tools/cursor", detection: "test" }
+  ];
+  const input = new PassThrough() as PassThrough & {
+    isTTY: boolean;
+    isRaw: boolean;
+    setRawMode: (enabled: boolean) => void;
+  };
+  input.isTTY = true;
+  input.isRaw = false;
+  input.setRawMode = (enabled) => {
+    input.isRaw = enabled;
+  };
+  const output = outputCapture();
+  const interactiveOutput = output.stream as PassThrough & { isTTY: boolean };
+  interactiveOutput.isTTY = true;
+  const prompter = new InteractivePrompter(input, interactiveOutput);
+
+  const selection = prompter.selectClients(clients);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  input.write("\u001b[B");
+  input.write(" ");
+  input.write("\r");
+
+  assert.deepEqual((await selection).map((client) => client.id), ["codex"]);
+  assert.equal(input.isRaw, false);
+  assert.match(output.text(), /Use ↑\/↓ to move, space to toggle/);
+  assert.match(output.text(), /\[x\]/);
 });
 
 type ClientIdForTest = DetectedClient["id"];

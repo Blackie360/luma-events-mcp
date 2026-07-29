@@ -77,7 +77,8 @@ The wizard:
 1. Opens with a compact ASCII banner and numbered setup stages, with color only
    when the terminal supports it.
 2. Detects installed Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI clients.
-3. Lets you select one, several, or all detected clients.
+3. Lets you select one, several, or all detected clients with ↑/↓, Space, and
+   Enter. Press `a` to select or clear all clients.
 4. Prompts you to paste your Luma calendar API key with masked terminal input.
 5. Verifies the key with Luma before changing anything.
 6. Shows the exact installation plan and waits for final confirmation.
