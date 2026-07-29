@@ -105,19 +105,19 @@ test("CLI client adapters never include the Luma API key in process arguments", 
     assert.deepEqual(invocations, [
         {
             command: "/tools/codex",
-            args: ["mcp", "add", "luma-events", "--", "npx", "-y", "--package", "@blackie360/luma-events-mcp@latest", "luma-events-mcp"]
+            args: ["mcp", "add", "luma-events", "--", "npx", "-y", "--package", "luma-events@latest", "luma-events"]
         },
         {
             command: "/tools/claude",
-            args: ["mcp", "add", "--scope", "user", "luma-events", "--", "npx", "-y", "--package", "@blackie360/luma-events-mcp@latest", "luma-events-mcp"]
+            args: ["mcp", "add", "--scope", "user", "luma-events", "--", "npx", "-y", "--package", "luma-events@latest", "luma-events"]
         },
         {
             command: "/tools/gemini",
-            args: ["mcp", "add", "--scope", "user", "luma-events", "npx", "-y", "--package", "@blackie360/luma-events-mcp@latest", "luma-events-mcp"]
+            args: ["mcp", "add", "--scope", "user", "luma-events", "npx", "-y", "--package", "luma-events@latest", "luma-events"]
         },
         {
             command: "/tools/grok",
-            args: ["mcp", "add", "luma-events", "--", "npx", "-y", "--package", "@blackie360/luma-events-mcp@latest", "luma-events-mcp"]
+            args: ["mcp", "add", "luma-events", "--", "npx", "-y", "--package", "luma-events@latest", "luma-events"]
         }
     ]);
     assert.doesNotMatch(JSON.stringify(invocations), /private-key|LUMA_API_KEY/);
@@ -140,7 +140,7 @@ test("Cursor installation preserves other settings and creates a backup", async 
     assert.deepEqual(configured.mcpServers["luma-events"], {
         type: "stdio",
         command: "npx",
-        args: ["-y", "--package", "@blackie360/luma-events-mcp@latest", "luma-events-mcp"]
+        args: ["-y", "--package", "luma-events@latest", "luma-events"]
     });
 });
 test("interactive setup asks for the key after selection and writes only after confirmation", async () => {
@@ -253,7 +253,7 @@ test("packaged entry exposes setup help without starting stdio", () => {
         encoding: "utf8"
     });
     assert.equal(result.status, 0);
-    assert.match(result.stdout, /luma-events-mcp setup/);
+    assert.match(result.stdout, /luma-events setup/);
     assert.match(result.stdout, /Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI/);
     assert.equal(result.stderr, "");
 });

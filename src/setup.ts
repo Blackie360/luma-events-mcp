@@ -7,8 +7,8 @@ import { createInterface, emitKeypressEvents, type Interface } from "node:readli
 import type { Readable, Writable } from "node:stream";
 
 const SERVER_NAME = "luma-events";
-const PACKAGE_SPEC = "@blackie360/luma-events-mcp@latest";
-const SERVER_COMMAND = ["-y", "--package", PACKAGE_SPEC, "luma-events-mcp"];
+const PACKAGE_SPEC = "luma-events@latest";
+const SERVER_COMMAND = ["-y", "--package", PACKAGE_SPEC, "luma-events"];
 const DEFAULT_API_BASE = "https://public-api.luma.com";
 
 export type ClientId = "codex" | "cursor" | "claude" | "gemini" | "grok";
@@ -728,11 +728,11 @@ export function setupHelp(): string {
     "Luma Events MCP",
     "",
     "Usage:",
-    "  luma-events-mcp              Start the MCP stdio server",
-    "  luma-events-mcp setup        Detect AI clients and run interactive setup",
-    "  luma-events-mcp setup --dry-run",
-    "  luma-events-mcp --help",
-    "  luma-events-mcp --version",
+    "  luma-events              Start the MCP stdio server",
+    "  luma-events setup        Detect AI clients and run interactive setup",
+    "  luma-events setup --dry-run",
+    "  luma-events --help",
+    "  luma-events --version",
     "",
     "Supported setup adapters: Codex, Cursor, Claude Code, Gemini CLI, and Grok CLI."
   ].join("\n");

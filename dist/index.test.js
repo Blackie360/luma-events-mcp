@@ -9,7 +9,7 @@ import { storeApiKey } from "./setup.js";
 test("isMainModule resolves npm bin symlinks", () => {
     const directory = mkdtempSync(join(tmpdir(), "luma-events-main-module-"));
     const modulePath = fileURLToPath(new URL("./index.js", import.meta.url));
-    const executablePath = join(directory, "luma-events-mcp");
+    const executablePath = join(directory, "luma-events");
     symlinkSync(modulePath, executablePath);
     try {
         assert.equal(isMainModule(executablePath, pathToFileURL(modulePath).href), true);

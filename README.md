@@ -1,6 +1,6 @@
-[![npm version](https://img.shields.io/npm/v/%40blackie360%2Fluma-events-mcp?logo=npm)](https://www.npmjs.com/package/@blackie360/luma-events-mcp)
+[![npm version](https://img.shields.io/npm/v/luma-events?logo=npm)](https://www.npmjs.com/package/luma-events)
 [![Release](https://github.com/Blackie360/luma-events-mcp/actions/workflows/publish.yml/badge.svg)](https://github.com/Blackie360/luma-events-mcp/actions/workflows/publish.yml)
-[![Node.js](https://img.shields.io/node/v/%40blackie360%2Fluma-events-mcp?logo=node.js)](https://www.npmjs.com/package/@blackie360/luma-events-mcp)
+[![Node.js](https://img.shields.io/node/v/luma-events?logo=node.js)](https://www.npmjs.com/package/luma-events)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 # Luma Events MCP Server
@@ -59,8 +59,13 @@ password: do not commit it, paste it into issues, or include it in screenshots.
 Run the setup wizard without cloning the repository:
 
 ```bash
-npx -y @blackie360/luma-events-mcp@latest setup
+npx -y luma-events setup
 ```
+
+> [!NOTE]
+> Releases through `0.7.2` used the package name
+> `@blackie360/luma-events-mcp`. Run the shorter command above once to update
+> existing client configurations to `luma-events`.
 
 ```text
  _     _   _ __  __    _
@@ -96,7 +101,7 @@ file is backed up first. Preview detection without requesting a key or changing
 configuration with:
 
 ```bash
-npx -y @blackie360/luma-events-mcp@latest setup --dry-run
+npx -y luma-events setup --dry-run
 ```
 
 | Client | Setup adapter |
@@ -132,8 +137,8 @@ command = "npx"
 args = [
   "-y",
   "--package",
-  "@blackie360/luma-events-mcp@latest",
-  "luma-events-mcp"
+  "luma-events@latest",
+  "luma-events"
 ]
 env_vars = ["LUMA_API_KEY"]
 ```
@@ -159,8 +164,8 @@ Add this server to your Cursor MCP configuration:
       "args": [
         "-y",
         "--package",
-        "@blackie360/luma-events-mcp@latest",
-        "luma-events-mcp"
+        "luma-events@latest",
+        "luma-events"
       ],
       "env": {
         "LUMA_API_KEY": "your-luma-api-key"
@@ -187,8 +192,8 @@ Any client that supports local stdio MCP servers can launch the npm package:
       "args": [
         "-y",
         "--package",
-        "@blackie360/luma-events-mcp@latest",
-        "luma-events-mcp"
+        "luma-events@latest",
+        "luma-events"
       ],
       "env": {
         "LUMA_API_KEY": "your-luma-api-key"
@@ -204,11 +209,11 @@ MCP documentation if it uses a different server key or environment format.
 ### Install globally
 
 ```bash
-npm install --global @blackie360/luma-events-mcp
-luma-events-mcp setup
+npm install --global luma-events
+luma-events setup
 ```
 
-Running `luma-events-mcp` without a subcommand starts the stdio server. It
+Running `luma-events` without a subcommand starts the stdio server. It
 normally appears idle when run directly because an MCP client is expected to
 communicate with it over standard input and output.
 
@@ -492,7 +497,7 @@ commits, issues, or pull requests.
 - Review published changes in
   [GitHub Releases](https://github.com/Blackie360/luma-events-mcp/releases).
 - Install the latest package from
-  [npm](https://www.npmjs.com/package/@blackie360/luma-events-mcp).
+  [npm](https://www.npmjs.com/package/luma-events).
 
 ## API
 

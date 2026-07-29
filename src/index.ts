@@ -62,7 +62,7 @@ const ticketTypeMutableFields = {
 function apiKey(): string {
   const value = process.env.LUMA_API_KEY?.trim() || readStoredApiKey();
   if (!value) {
-    throw new Error("LUMA_API_KEY is not configured. Run `luma-events-mcp setup` or expose a calendar API key to the plugin environment.");
+    throw new Error("LUMA_API_KEY is not configured. Run `luma-events setup` or expose a calendar API key to the plugin environment.");
   }
   return value;
 }
