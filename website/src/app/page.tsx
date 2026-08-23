@@ -27,12 +27,15 @@ import { buttonVariants } from "@/components/ui/button";
 import {
   Card,
   CardAction,
+  CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { getNpmDownloadStats } from "@/lib/npm-stats";
+import { cn } from "@/lib/utils";
 
 const GITHUB_URL = "https://github.com/Blackie360/luma-events-mcp";
 const NPM_URL = "https://www.npmjs.com/package/luma-events";
@@ -41,6 +44,10 @@ const ISSUES_URL = `${GITHUB_URL}/issues/new`;
 type Capability = {
   title: string;
   description: string;
+  eyebrow: string;
+  metric: string;
+  detail: string;
+  layout: "feature" | "wide" | "compact";
   icon: LucideIcon;
 };
 
@@ -48,31 +55,55 @@ const capabilities: Capability[] = [
   {
     title: "Event operations",
     description: "Create, update, and safely cancel events.",
+    eyebrow: "Calendar control",
+    metric: "Full lifecycle",
+    detail: "Create → preview → confirm",
+    layout: "feature",
     icon: CalendarCheckIcon,
   },
   {
     title: "Guest control",
     description: "Add guests and manage every approval state.",
+    eyebrow: "Guest states",
+    metric: "4 states",
+    detail: "Approved · Pending · Waitlisted · Declined",
+    layout: "wide",
     icon: UsersRoundIcon,
   },
   {
     title: "Ticketing",
     description: "Manage free, paid, and flexible-price tickets.",
+    eyebrow: "Ticket modes",
+    metric: "3 models",
+    detail: "Free · Paid · Flexible",
+    layout: "wide",
     icon: TicketCheckIcon,
   },
   {
     title: "Host coordination",
     description: "Assign managers, check-in staff, and access levels.",
+    eyebrow: "Team access",
+    metric: "Role-aware",
+    detail: "Managers and check-in staff",
+    layout: "compact",
     icon: UserRoundCogIcon,
   },
   {
     title: "Audience growth",
     description: "Preview and invite past audiences without duplicates.",
+    eyebrow: "Audience tools",
+    metric: "0 duplicates",
+    detail: "Preview before every invite",
+    layout: "compact",
     icon: SendIcon,
   },
   {
     title: "Registration intelligence",
     description: "Summarize registrations and check-ins without exposing identities.",
+    eyebrow: "Private by design",
+    metric: "Identity-safe",
+    detail: "Aggregate registration insight",
+    layout: "compact",
     icon: ScanSearchIcon,
   },
 ];
@@ -349,8 +380,24 @@ export default async function Home() {
             <PromptExamples />
 
             <div className="capability-grid" data-reveal>
-              {capabilities.map(({ title, description, icon: Icon }, index) => (
-                <Card key={title} className={index === 0 || index === 5 ? "md:col-span-2" : undefined}>
+              {capabilities.map(
+                ({
+                  title,
+                  description,
+                  eyebrow,
+                  metric,
+                  detail,
+                  layout,
+                  icon: Icon,
+                }) => (
+                <Card
+                  key={title}
+                  role="article"
+                  className={cn(
+                    "capability-card",
+                    `capability-card--${layout}`,
+                  )}
+                >
                   <CardHeader>
                     <CardTitle>
                       <h3>{title}</h3>
@@ -360,6 +407,37 @@ export default async function Home() {
                       <Icon aria-hidden="true" />
                     </CardAction>
                   </CardHeader>
+
+                  <CardContent>
+                    {layout === "feature" ? (
+                      <div className="event-preview" aria-hidden="true">
+                        <div className="event-preview-head">
+                          <span>operator.preview</span>
+                          <Badge variant="outline">Awaiting confirmation</Badge>
+                        </div>
+                        <div className="event-preview-row">
+                          <span>APR 18</span>
+                          <strong>Build Night</strong>
+                          <code>17:00 EAT</code>
+                        </div>
+                        <div className="event-preview-row">
+                          <span>Guests</span>
+                          <strong>Approved audience</strong>
+                          <code>Notify: on</code>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="capability-metric">
+                      <strong>{metric}</strong>
+                      <span>{detail}</span>
+                    </div>
+                  </CardContent>
+
+                  <CardFooter>
+                    <span>{eyebrow}</span>
+                    <Badge variant="outline">Available</Badge>
+                  </CardFooter>
                 </Card>
               ))}
             </div>
